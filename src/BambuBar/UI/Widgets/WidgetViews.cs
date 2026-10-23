@@ -112,9 +112,8 @@ public static class WidgetViews
         var frame = size.FrameSize();
         var backdrop = new LinearGradientBrush(Color.FromRgb(41, 43, 46), Color.FromRgb(20, 23, 26), 90);
         backdrop.Freeze();
-        var border = new Border
+        var card = new Border
         {
-            Width = frame.Width, Height = frame.Height,
             CornerRadius = new CornerRadius(22),
             Background = backdrop,
             BorderBrush = new SolidColorBrush(Color.FromArgb(31, 255, 255, 255)),
@@ -124,9 +123,12 @@ public static class WidgetViews
             ClipToBounds = true,
             SnapsToDevicePixels = true,
         };
-        TextOptions.SetTextFormattingMode(border, TextFormattingMode.Ideal);
-        if (shadow) border.Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 20, ShadowDepth = 4, Direction = 270, Opacity = 0.25 };
-        return border;
+        TextOptions.SetTextFormattingMode(card, TextFormattingMode.Ideal);
+        // The shadow goes on a frame around the card: on the card itself, its rectangular clip would cut the shadow
+        // off at the card's bounds, leaving it only in the corners outside the rounding.
+        var frameBorder = new Border { Width = frame.Width, Height = frame.Height, Child = card };
+        if (shadow) frameBorder.Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 20, ShadowDepth = 4, Direction = 270, Opacity = 0.25 };
+        return frameBorder;
     }
 
     private static TextBlock Rounded(string text, double size, FontWeight? weight = null, Brush? color = null) =>

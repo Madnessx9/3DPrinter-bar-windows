@@ -55,6 +55,9 @@ public sealed class Flex : Panel
             growUsed += Main(child.DesiredSize, horizontal);
             cross = Math.Max(cross, Cross(child.DesiredSize, horizontal));
         }
+        // Like a SwiftUI stack with a flexible child: it takes all the room it's offered, so the growing children get
+        // their shares instead of being squeezed back to the stack's natural size.
+        if (growTotal > 0 && !double.IsInfinity(rest)) growUsed = Math.Max(growUsed, rest);
         return Make(used + growUsed, cross, horizontal);
     }
 

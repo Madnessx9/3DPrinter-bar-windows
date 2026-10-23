@@ -220,7 +220,7 @@ public sealed class SetupPage : ContentControl
             Icons.Make(Icon.Download, 14, _dropTargeted ? Theme.Brush(Palette.Accent) : Theme.Secondary),
             Grow(Column(1,
                 Text("Bambu Studio on another computer?", 12, Semibold),
-                Rich(_importNote ?? "Drop its **BambuStudio.conf** here, or its BambuStudio folder. On Windows it's in **%APPDATA%\\BambuStudio**; on a Mac in **Library → Application Support → BambuStudio**.", 11.5, Theme.Secondary))),
+                Rich(_importNote ?? "Drop its **BambuStudio.conf** here, or its BambuStudio folder. On Windows it's in **%\u2060APPDATA%\u2060\\BambuStudio**; on a Mac in **Library → Application Support → BambuStudio**.", 11.5, Theme.Secondary))),
             Push("Choose File…", ChooseSettingsFile, small: true),
             Push("Choose Folder…", ChooseSettingsFolder, small: true));
         var panel = Panel(Column(12, Reuse.Place(_code), help, Divider(), import), 16, 14, _dropTargeted ? Palette.Accent : null);
