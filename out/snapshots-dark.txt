@@ -1,0 +1,11 @@
+panel-dark.png
+panel-fleet-dark.png
+widgets-dark.png
+window-fleet-dark.png
+window-printer-dark.png
+window-filament-dark.png
+window-widgets-dark.png
+window-settings-dark.png
+window-about-dark.png
+window-add-printer-dark.png
+tray-icons.png
