@@ -1,0 +1,15 @@
+# docker compose -f scripts/fleet/compose.yaml up --build
+# Then: BambuBar.exe --emulator scripts\fleet\out\BambuStudio.conf   (or just run scripts\fleet\run.ps1)
+services:
+  fleet:
+    build:
+      context: ..
+      dockerfile: fleet/Dockerfile
+    environment:
+      PUBLISHED_HOST: 127.0.0.1
+      SSDP_TARGET: ${SSDP_TARGET:-}
+      SPEED: ${SPEED:-1}
+    ports:
+      - "127.0.0.1:18801-18812:18801-18812"
+    volumes:
+      - ./out:/out

@@ -1,0 +1,12 @@
+<Project>
+  <PropertyGroup>
+    <Version>1.1.0</Version>
+    <Authors>rolottr; Windows port by Precog29</Authors>
+    <Copyright>© 2026 rolottr. MIT License.</Copyright>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+</Project>

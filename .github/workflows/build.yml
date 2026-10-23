@@ -1,0 +1,82 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    # The core library and its tests run on Linux, against the bundled printer emulator (mosquitto + TLS).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install the emulator's broker
+        run: sudo apt-get update && sudo apt-get install -y mosquitto mosquitto-clients
+      - name: Test
+        run: dotnet test tests/BambuBar.Core.Tests --logger "console;verbosity=normal"
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build
+        run: dotnet build BambuBar.slnx -c Release
+      - name: Snapshots of the UI (demo printer, light and dark)
+        shell: pwsh
+        run: |
+          $exe = 'src\BambuBar\bin\Release\net10.0-windows10.0.19041.0\BambuBar.exe'
+          foreach ($look in '--light', '--dark') {
+            $p = Start-Process $exe -ArgumentList '--demo', 'printing', '--fleet', '--snapshot', 'snapshots', $look -PassThru
+            if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "snapshot run $look timed out" }
+          }
+          Get-ChildItem snapshots | Format-Table Name, Length
+          if (Get-ChildItem snapshots -Filter 'snapshot-error-*' -ErrorAction SilentlyContinue) {
+            Get-Content snapshots\snapshot-error-*; throw 'snapshot run failed'
+          }
+          if (-not (Test-Path snapshots\window-printer-dark.png)) { throw 'no snapshots written' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: snapshots
+          path: snapshots/
+      - name: Publish a single exe
+        run: |
+          dotnet publish src/BambuBar -c Release -r win-x64 -o publish/x64
+          dotnet publish src/BambuBar -c Release -r win-arm64 -o publish/arm64
+      - name: Probe the published exe
+        shell: pwsh
+        # --probe against nothing: proves the single-file exe starts, writes to the console and exits by itself.
+        run: |
+          $out = & publish\x64\BambuBar.exe --probe 127.0.0.1:1 TEST 00000000 3 | Out-String
+          Write-Output $out
+          if ($out -notmatch 'connecting to 127.0.0.1:1') { throw 'probe printed nothing' }
+          if ($out -notmatch 'done: 0 status updates') { throw 'probe did not finish' }
+          $global:LASTEXITCODE = 0  # no printer there, so the probe itself exits 1
+      - name: Name the downloads
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item publish\x64\BambuBar.exe dist\BambuBar-x64.exe
+          Copy-Item publish\arm64\BambuBar.exe dist\BambuBar-arm64.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BambuBar
+          path: dist/
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
