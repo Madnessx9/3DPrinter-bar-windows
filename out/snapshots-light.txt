@@ -1,0 +1,11 @@
+panel-light.png
+panel-fleet-light.png
+widgets-light.png
+window-fleet-light.png
+window-printer-light.png
+window-filament-light.png
+window-widgets-light.png
+window-settings-light.png
+window-about-light.png
+window-add-printer-light.png
+tray-icons.png

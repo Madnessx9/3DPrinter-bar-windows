@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Everything that isn't Windows UI: the printer protocol, parsing, the printer store and its services.
+       Cross-platform so the tests run anywhere (including against scripts/emulator). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>BambuBar</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\Certificates\*.pem" LogicalName="Certificates.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Resources\hms_en.json" LogicalName="hms_en.json" />
+    <EmbeddedResource Include="Resources\filaments.json" LogicalName="filaments.json" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="BambuBar.Core.Tests" />
+  </ItemGroup>
+</Project>

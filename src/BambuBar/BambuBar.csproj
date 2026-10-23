@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <UseWPF>true</UseWPF>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <RootNamespace>BambuBar</RootNamespace>
+    <AssemblyName>BambuBar</AssemblyName>
+    <Product>Bambu Bar</Product>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Resources\BambuBar.ico</ApplicationIcon>
+    <StartupObject>BambuBar.App.Program</StartupObject>
+    <DebugType>embedded</DebugType>
+    <!-- Fluent styles for the standard controls (ThemeMode is marked experimental). -->
+    <NoWarn>$(NoWarn);WPF0001</NoWarn>
+  </PropertyGroup>
+  <!-- One self-contained exe for releases: dotnet publish src/BambuBar -c Release -r win-x64 -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\BambuBar.Core\BambuBar.Core.csproj" />
+    <PackageReference Include="Microsoft.Toolkit.Uwp.Notifications" Version="7.1.3" />
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="Resources\Printers\*.png" />
+    <Resource Include="Resources\BambuBar.ico" />
+    <Resource Include="Resources\AppIcon.png" />
+    <EmbeddedResource Include="Resources\Printers\*.json" LogicalName="Printers.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Resources\Printers\*.mesh.json.gz" LogicalName="Printers.%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>
