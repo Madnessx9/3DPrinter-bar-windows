@@ -10,9 +10,14 @@ Built with C#, .NET 10 and WPF. No account, no cloud service, no analytics.
 
 > Independent, community-developed software. Not affiliated with or endorsed by Bambu Lab or Snapmaker. Supports Bambu Lab LAN printers (X1, P1, A1, H2, and P2S families) as well as Klipper/Moonraker/Fluidd printers including the Snapmaker U1.
 
+| Tray Flyout Panel | Main Window (Overview) |
+| :---: | :---: |
+| ![Snapmaker U1 Tray Flyout](docs/images/snapmaker-u1-panel.png) | ![Snapmaker U1 Main Window](docs/images/snapmaker-u1-overview.png) |
+
 ## What's New in This Fork
 
 - **Snapmaker U1 (`paxx12` Firmware) & Fluidd / Moonraker Support:** Connect directly to your Snapmaker U1 or Klipper printer over Moonraker's WebSocket (`ws://<ip>/websocket`) and HTTP JSON-RPC API (auto-detecting port `80` and `7125`), with optional Moonraker API key support.
+- **All 4 Toolhead (`T1`–`T4`) & X/Y Stepper Driver Temperatures:** Displays dedicated temperature & target gauges for all 4 toolheads (`T1 · Active`, `T2`, `T3`, `T4`) alongside Bed, Chamber (`temperature_sensor cavity`), and `tmc2240 stepper_x` / `tmc2240 stepper_y` driver temperatures.
 - **Live 4-Toolhead Filament Tracking (`T1`–`T4`):** Reads the Snapmaker U1's `print_task_config`, `filament_detect`, and `filament_feed left`/`right` Klipper objects to display exact loaded filament colors (with human-readable color names), brands (`SUNLU`, `Generic`, etc.), materials, RFID tag weights/temperature ranges, and active toolhead state under a dedicated **Toolheads** section instead of "AMS".
 - **Display All Active Printers Everywhere:**
   - **Tray Flyout:** Defaults to showing all printers at once, with a 1-click **Active / All** toggle when multiple printers are configured.
