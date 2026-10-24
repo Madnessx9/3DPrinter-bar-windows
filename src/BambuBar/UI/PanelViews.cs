@@ -18,23 +18,18 @@ public static class PanelViews
 
     // MARK: - Job hero
 
-    /// <summary>The printer beside the job: name, stage, big percentage, filament-coloured progress and timing.</summary>
-    public static FrameworkElement JobHero(PrinterStatus status, bool compact, PrinterModelView model)
+    /// <summary>The live camera view beside the job: name, stage, big percentage, filament-coloured progress and timing.</summary>
+    public static FrameworkElement JobHero(PrinterStatus status, bool compact, LiveCameraView camera)
     {
-        var art = PrinterArt.For(status, Store.Config?.ModelName, lightOverride: Store.ChamberLightOn);
-        // After a print the part stays on the plate in the colour it was printed in.
-        if (art.Filament is null && !status.State.IsActive() && Store.LastJob?.FilamentColor is { } last) art.Filament = Palette.Filament(last);
-        model.Apply(art);
-        Reuse.Detach(model);
-        model.Width = compact ? 92 : 190;
-        model.Height = compact ? 110 : 228;
+        camera.Configure(compact);
+        Reuse.Detach(camera);
 
         var pill = StatePill(status.State, PillText(status) ?? status.StateTitle, compact, Palette.ColorFor(status));
         var body = status.State == JobState.Idle ? IdleBody(compact) : JobBody(status, compact);
         var column = Column(compact ? 6 : 10, [pill, .. body]);
-        var row = Row(compact ? 12 : 22, model, Grow(column));
+        var row = Row(compact ? 12 : 22, camera, Grow(column));
         row.VerticalAlignment = VerticalAlignment.Center;
-        model.VerticalAlignment = VerticalAlignment.Center;
+        camera.VerticalAlignment = VerticalAlignment.Center;
         column.VerticalAlignment = VerticalAlignment.Center;
         var panel = Panel(row, compact ? 20 : 26, compact ? 12 : 22);
         if (status.ChamberLightOn is null) return panel;

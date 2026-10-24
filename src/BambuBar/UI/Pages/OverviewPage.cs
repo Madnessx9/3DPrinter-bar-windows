@@ -17,7 +17,7 @@ public sealed class OverviewPage : ContentControl
 {
     private static PrinterStore Store => PrinterStore.Shared;
 
-    private readonly PrinterModelView _model = new();
+    private readonly LiveCameraView _camera = new();
     private readonly RefreshControl _refresh = new(compact: false);
     private readonly PrinterNameField _name = new();
 
@@ -36,7 +36,7 @@ public sealed class OverviewPage : ContentControl
         };
         if (Store.Status is { } status && Store.IsOnline)
         {
-            rows.Add(JobHero(status, compact: false, _model));
+            rows.Add(JobHero(status, compact: false, _camera));
             if (status.State.IsActive())
             {
                 var controls = PrintControls(status);

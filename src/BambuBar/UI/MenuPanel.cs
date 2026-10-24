@@ -14,7 +14,7 @@ public sealed class MenuPanel : ContentControl
 {
     private static PrinterStore Store => PrinterStore.Shared;
 
-    private readonly PrinterModelView _model = new();
+    private readonly LiveCameraView _camera = new();
     private readonly RefreshControl _refresh = new(compact: true);
     /// <summary>Set by snapshots, which mustn't touch the setting.</summary>
     private readonly bool? _showsAllOverride;
@@ -59,7 +59,7 @@ public sealed class MenuPanel : ContentControl
         }
         else if (Store.Status is { } status && Store.IsOnline)
         {
-            rows.Add(JobHero(status, compact: true, _model));
+            rows.Add(JobHero(status, compact: true, _camera));
             if (status.MostSevereIssue is { } issue && issue.Severity <= IssueSeverity.Common) rows.Add(IssueBanner(issue));
             rows.Add(Components.TemperaturesLayout(status, Store.Config?.Model, includeFans: false, spacing: 8));
             if (status.Ams.Count > 0 || status.ExternalSpool?.IsLoaded == true) rows.Add(FilamentStrip(status));
