@@ -15,13 +15,13 @@ public static class FilamentPage
     private static PrinterStore Store => PrinterStore.Shared;
 
     // Only what the page shows, so temperature reports don't rebuild it.
-    public static object Key() => (Store.Current?.Id, Store.IsOnline, Store.IsConfigured, Store.Status?.Ams, Store.Status?.ExternalSpool,
+    public static object Key() => (Store.Current?.Id, Store.Sessions.Count, Store.IsOnline, Store.IsConfigured, Store.Status?.Ams, Store.Status?.ExternalSpool,
         Store.Status?.ActiveSpoolId, Store.Status?.State.IsActive());
 
     public static UIElement Build()
     {
         var isMoonraker = Store.Config?.Protocol == PrinterProtocol.Moonraker;
-        var rows = new List<UIElement?> { PageHeader("Filament", Subtitle()) };
+        var rows = new List<UIElement?> { PageHeader("Filament", Subtitle(), PrinterNavArrows(showPrinterName: true)) };
         if (Store.Status is { } status && Store.IsOnline)
         {
             var printing = status.State.IsActive();

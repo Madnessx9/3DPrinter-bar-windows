@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using BambuBar.Models;
+using BambuBar.Services;
 using static BambuBar.UI.Ui;
 
 namespace BambuBar.UI.Pages;
@@ -18,6 +19,22 @@ public static class PageKit
         var left = Column(3, title, subtitle is null ? null : Text(subtitle, 13, color: Theme.Secondary));
         if (trailing is FrameworkElement t) t.VerticalAlignment = VerticalAlignment.Bottom;
         return Row(12, Grow(left), trailing).WithMargin(0, 0, 0, 4);
+    }
+
+    /// <summary>Left and right navigation arrows to cycle between configured printers in the windowed view.</summary>
+    public static FrameworkElement? PrinterNavArrows(bool showPrinterName = false)
+    {
+        var store = PrinterStore.Shared;
+        if (!store.HasMultiplePrinters) return null;
+        var prevName = store.AdjacentPrinterName(-1) ?? "Previous";
+        var nextName = store.AdjacentPrinterName(1) ?? "Next";
+        var prev = HeaderIcon(Icon.ChevronLeft, store.SelectPrevious, $"Previous printer: {prevName} (Alt+Left)");
+        var next = HeaderIcon(Icon.ChevronRight, store.SelectNext, $"Next printer: {nextName} (Alt+Right)");
+        var counterText = showPrinterName
+            ? $"{store.PrinterName} · {store.CurrentPrinterIndex}/{store.Sessions.Count}"
+            : $"{store.CurrentPrinterIndex} / {store.Sessions.Count}";
+        var counter = Text(counterText, 11.5, Medium, Theme.Secondary, digits: true).WithMargin(2, 0, 2, 0);
+        return Row(6, prev, counter, next).Aligned(vertical: VerticalAlignment.Center);
     }
 
     /// <summary>A big empty state in a panel.</summary>

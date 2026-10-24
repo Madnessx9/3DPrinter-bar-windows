@@ -283,6 +283,40 @@ public sealed class PrinterStore
 
     public bool HasMultiplePrinters => _sessions.Count > 1;
 
+    /// <summary>1-based index of the currently selected printer in <see cref="Sessions"/>.</summary>
+    public int CurrentPrinterIndex
+    {
+        get
+        {
+            var id = Current?.Id;
+            var idx = id is null ? -1 : _sessions.FindIndex(s => s.Id == id);
+            return idx >= 0 ? idx + 1 : 1;
+        }
+    }
+
+    public string? AdjacentPrinterName(int delta)
+    {
+        if (_sessions.Count <= 1) return null;
+        var id = Current?.Id;
+        var idx = id is null ? 0 : _sessions.FindIndex(s => s.Id == id);
+        if (idx < 0) idx = 0;
+        var target = (idx + delta % _sessions.Count + _sessions.Count) % _sessions.Count;
+        return _sessions[target].Config.Name;
+    }
+
+    public void SelectPrevious() => CyclePrinter(-1);
+    public void SelectNext() => CyclePrinter(1);
+
+    private void CyclePrinter(int delta)
+    {
+        if (_sessions.Count <= 1) return;
+        var id = Current?.Id;
+        var idx = id is null ? 0 : _sessions.FindIndex(s => s.Id == id);
+        if (idx < 0) idx = 0;
+        var target = (idx + delta % _sessions.Count + _sessions.Count) % _sessions.Count;
+        Select(_sessions[target].Id);
+    }
+
     /// <summary>Saves a printer (new, or a new address/code for a known one) and connects to it.</summary>
     public void Connect(PrinterConfig config, string accessCode, IEnumerable<string>? alternatives = null)
     {

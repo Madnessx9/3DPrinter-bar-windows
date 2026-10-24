@@ -9,7 +9,7 @@ namespace BambuBar.UI;
 /// (Segoe Fluent Icons, Segoe MDL2 Assets on Windows 10), small drawings for the printer-specific ones.</summary>
 public enum Icon
 {
-    Settings, Refresh, Printer, ChevronDown, ChevronRight, Grid, Play, Pause, Stop, Lock, Clock, Warning, Info,
+    Settings, Refresh, Printer, ChevronDown, ChevronLeft, ChevronRight, Grid, Play, Pause, Stop, Lock, Clock, Warning, Info,
     CheckCircle, XCircle, Check, Close, Lightbulb, Window, Download, Wifi, WifiOff, Key, Pencil, Copy, Code, Document,
     Feedback, Search, Power, Add, Speed, SpeedSilent, SpeedStandard, Bolt, Bell, Sliders, Sun, Moon, SdCard, Video, Pin, More, Folder,
     // Drawn
@@ -21,7 +21,7 @@ public static class Icons
     private static readonly Dictionary<Icon, string> Glyphs = new()
     {
         [Icon.Settings] = "\uE713", [Icon.Refresh] = "\uE72C", [Icon.Printer] = "\uE749", [Icon.ChevronDown] = "\uE70D",
-        [Icon.ChevronRight] = "\uE76C", [Icon.Grid] = "\uF0E2", [Icon.Play] = "\uE768", [Icon.Pause] = "\uE769",
+        [Icon.ChevronLeft] = "\uE76B", [Icon.ChevronRight] = "\uE76C", [Icon.Grid] = "\uF0E2", [Icon.Play] = "\uE768", [Icon.Pause] = "\uE769",
         [Icon.Stop] = "\uE71A", [Icon.Lock] = "\uE72E", [Icon.Clock] = "\uE823", [Icon.Warning] = "\uE7BA",
         [Icon.Info] = "\uE946", [Icon.CheckCircle] = "\uEC61", [Icon.XCircle] = "\uEB90", [Icon.Check] = "\uE73E",
         [Icon.Close] = "\uE711", [Icon.Lightbulb] = "\uEA80", [Icon.Window] = "\uE737", [Icon.Download] = "\uE896",

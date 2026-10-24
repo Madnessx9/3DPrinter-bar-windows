@@ -128,7 +128,7 @@ public sealed class MenuPanel : ContentControl
         if (Store.Config is not { } config) return "No printer set up";
         List<string> parts = [config.ModelName];
         if (Store.Phase is ConnectionPhase.Online)
-            parts.Add(Store.Status?.WifiSignal is { } wifi ? WiFi.Describe(wifi) : "Connected");
+            parts.Add(Store.Status?.WifiSignal is { } wifi ? WiFi.Describe(wifi) : Store.Status?.NetworkText is { } net && net.StartsWith("Wi-Fi", StringComparison.OrdinalIgnoreCase) ? "Wi-Fi" : "Connected");
         else
             parts.Add(Store.LinkSummary);
         return string.Join(" · ", parts);

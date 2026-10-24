@@ -224,6 +224,10 @@ public sealed record PrinterStatus
     public bool? ChamberLightOn { get; set; }
     public bool? DoorOpen { get; set; }
     public int? WifiSignal { get; set; }
+    /// <summary>Human-readable network connection description when dBm signal isn't reported (e.g. "Wi-Fi · 192.168.1.78" on Moonraker).</summary>
+    public string? NetworkText { get; set; }
+    /// <summary>Human-readable storage description when capacity is known (e.g. "25.5 GB free of 26.0 GB" on Moonraker).</summary>
+    public string? StorageText { get; set; }
     public ValueList<AmsUnit> Ams { get; set; } = [];
     public Spool? ExternalSpool { get; set; }
     public int? ActiveSpoolId { get; set; }

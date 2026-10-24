@@ -24,7 +24,7 @@ public sealed class OverviewPage : ContentControl
     public OverviewPage()
     {
         Focusable = false;
-        Content = new Live(() => (Store.Current?.Id, Store.Status, Store.Phase, Store.Config, Store.ChamberLightOn, Store.Speed, Store.Toast, _name.Key),
+        Content = new Live(() => (Store.Current?.Id, Store.Sessions.Count, Store.Status, Store.Phase, Store.Config, Store.ChamberLightOn, Store.Speed, Store.Toast, _name.Key),
             Build);
     }
 
@@ -101,8 +101,8 @@ public sealed class OverviewPage : ContentControl
         if (s.ChamberLightOn is not null) left.Add(DetailRow("Light", Store.ChamberLightOn ? "On" : "Off", Icon.Lightbulb));
         var right = new UIElement?[]
         {
-            DetailRow("Network", s.WifiSignal is int w ? $"{WiFi.Describe(w)} ({w} dBm)" : "—", Icon.Wifi),
-            DetailRow("Storage", s.HasSdCard == true ? "SD card inserted" : s.HasSdCard == false ? "No SD card" : "—", Icon.SdCard),
+            DetailRow("Network", s.WifiSignal is int w ? $"{WiFi.Describe(w)} ({w} dBm)" : s.NetworkText ?? "—", Icon.Wifi),
+            DetailRow("Storage", s.StorageText ?? (s.HasSdCard == true ? "SD card inserted" : s.HasSdCard == false ? "No SD card" : "—"), Icon.SdCard),
             DetailRow("Live View", s.LiveViewEnabled == true ? "On" : s.LiveViewEnabled == false ? "Off" : "—", Icon.Video),
             DetailRow("Firmware", (s.Firmware ?? "—") + (s.UpdateAvailable ? " · Update available" : ""), Icon.Chip),
         };
@@ -208,7 +208,7 @@ public sealed class PrinterNameField
             Child = Icons.Make(Icon.Pencil, 12, Theme.Secondary),
         };
         var edit = Button(pencil, Begin, t => pencil.Background = Theme.Fill(t.IsMouseOver ? 0.11 : 0.07), "Rename this printer in Bambu Bar");
-        return Row(8, title, edit).Aligned(HorizontalAlignment.Left);
+        return Row(8, title, edit, PrinterNavArrows()?.WithMargin(6, 0, 0, 0)).Aligned(HorizontalAlignment.Left);
     }
 
     private void Begin()

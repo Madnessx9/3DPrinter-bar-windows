@@ -257,6 +257,12 @@ internal sealed class MainWindow : Window
 
     private void OnKey(object sender, KeyEventArgs e)
     {
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt) && Store.HasMultiplePrinters)
+        {
+            var sysKey = e.Key == Key.System ? e.SystemKey : e.Key;
+            if (sysKey == Key.Left) { Store.SelectPrevious(); e.Handled = true; return; }
+            if (sysKey == Key.Right) { Store.SelectNext(); e.Handled = true; return; }
+        }
         if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) return;
         var sections = AppSections.All.Where(s => s != AppSection.Fleet).ToList();
         var digit = e.Key is >= Key.D0 and <= Key.D9 ? e.Key - Key.D0 : e.Key is >= Key.NumPad0 and <= Key.NumPad9 ? e.Key - Key.NumPad0 : -1;

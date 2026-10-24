@@ -56,6 +56,9 @@ public sealed class MoonrakerConnection : IDisposable
     private List<string> _subscribedObjects = [];
     private string? _lightObject;
     private string? _klipperVersion;
+    private string? _networkText;
+    private string? _storageText;
+    private bool? _liveViewEnabled;
     private string? _cachedMetaFile;
     private JsonObject? _fileMeta;
     private PrinterStatus? _lastStatus;
@@ -95,6 +98,9 @@ public sealed class MoonrakerConnection : IDisposable
         _config = null;
         _lastStatus = null;
         _objects.Clear();
+        _networkText = null;
+        _storageText = null;
+        _liveViewEnabled = null;
         _cachedMetaFile = null;
         _fileMeta = null;
         Phase = ConnectionPhase.IdlePhase;
@@ -104,9 +110,15 @@ public sealed class MoonrakerConnection : IDisposable
     {
         if (_config is null) return;
         if (Phase is ConnectionPhase.Online && _baseUrl.Length > 0)
-            _ = QueryFullStateAsync(_cts?.Token ?? CancellationToken.None);
+        {
+            var token = _cts?.Token ?? CancellationToken.None;
+            _ = QueryFullStateAsync(token);
+            _ = FetchMachineDetailsAsync(_baseUrl, _apiKey, _config, token);
+        }
         else
+        {
             ReconnectSoon(TimeSpan.Zero);
+        }
     }
 
     // MARK: - Commands
@@ -222,8 +234,11 @@ public sealed class MoonrakerConnection : IDisposable
                 _lightObject = lightObj;
             });
 
-            // Query initial state immediately over HTTP so UI updates right away
-            await QueryFullStateAsync(baseUrl, apiKey, objects, token).ConfigureAwait(false);
+            // Query initial state and machine details (network, storage, webcam) immediately over HTTP
+            await Task.WhenAll(
+                QueryFullStateAsync(baseUrl, apiKey, objects, token),
+                FetchMachineDetailsAsync(baseUrl, apiKey, config, token)
+            ).ConfigureAwait(false);
 
             // Start periodic poll timer on main thread as a heartbeat & metadata refresher
             MainThread.Post(() =>
@@ -497,10 +512,128 @@ public sealed class MoonrakerConnection : IDisposable
         PublishCurrent();
     }
 
+    private async Task FetchMachineDetailsAsync(string baseUrl, string apiKey, PrinterConfig config, CancellationToken token)
+    {
+        if (baseUrl.Length == 0) return;
+        string? networkText = null;
+        string? storageText = null;
+        bool? liveViewEnabled = null;
+
+        // 1. Network info (/machine/system_info -> result.system_info.network)
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/machine/system_info");
+            if (apiKey.Length > 0) req.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
+            using var resp = await Http.SendAsync(req, token).ConfigureAwait(false);
+            if (resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(token).ConfigureAwait(false);
+                if (JsonNode.Parse(body)?["result"]?["system_info"]?["network"] is JsonObject netObj)
+                {
+                    networkText = ParseNetworkInfo(netObj, config.Endpoint.Host);
+                }
+            }
+        }
+        catch { }
+
+        // 2. Storage / disk usage (/server/files/directory -> result.disk_usage)
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/server/files/directory");
+            if (apiKey.Length > 0) req.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
+            using var resp = await Http.SendAsync(req, token).ConfigureAwait(false);
+            if (resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(token).ConfigureAwait(false);
+                if (JsonNode.Parse(body)?["result"]?["disk_usage"] is JsonObject diskObj)
+                {
+                    var free = J.Double(diskObj["free"]);
+                    var total = J.Double(diskObj["total"]);
+                    if (free is > 0 && total is > 0)
+                    {
+                        var freeGb = free.Value / (1024.0 * 1024.0 * 1024.0);
+                        var totalGb = total.Value / (1024.0 * 1024.0 * 1024.0);
+                        storageText = string.Format(System.Globalization.CultureInfo.CurrentCulture, "{0:0.0} GB free of {1:0.0} GB", freeGb, totalGb);
+                    }
+                }
+            }
+        }
+        catch { }
+
+        // 3. Webcam / Live View status (/server/webcams/list -> result.webcams)
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/server/webcams/list");
+            if (apiKey.Length > 0) req.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
+            using var resp = await Http.SendAsync(req, token).ConfigureAwait(false);
+            if (resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(token).ConfigureAwait(false);
+                if (JsonNode.Parse(body)?["result"]?["webcams"] is JsonArray webcams && webcams.Count > 0)
+                {
+                    liveViewEnabled = webcams.Any(w => w?["enabled"]?.GetValue<bool>() != false);
+                }
+            }
+        }
+        catch { }
+
+        MainThread.Post(() =>
+        {
+            if (token.IsCancellationRequested) return;
+            var changed = false;
+            if (networkText is not null && networkText != _networkText) { _networkText = networkText; changed = true; }
+            if (storageText is not null && storageText != _storageText) { _storageText = storageText; changed = true; }
+            if (liveViewEnabled is not null && liveViewEnabled != _liveViewEnabled) { _liveViewEnabled = liveViewEnabled; changed = true; }
+            if (changed && _objects.Count > 0) PublishCurrent();
+        });
+    }
+
+    private static string? ParseNetworkInfo(JsonObject netObj, string configuredHost)
+    {
+        string? bestIface = null;
+        string? bestIp = null;
+
+        foreach (var (iface, node) in netObj)
+        {
+            if (string.Equals(iface, "lo", StringComparison.OrdinalIgnoreCase) || node is not JsonObject ifaceObj) continue;
+            if (ifaceObj["ip_addresses"] is not JsonArray ipArr) continue;
+            foreach (var ipItem in ipArr)
+            {
+                if (ipItem is not JsonObject ipObj) continue;
+                var family = J.String(ipObj["family"]);
+                var isLinkLocal = ipObj["is_link_local"] is JsonValue ll && ll.TryGetValue<bool>(out var linkLocal) && linkLocal;
+                var addr = J.String(ipObj["address"]);
+                if (string.IsNullOrEmpty(addr) || isLinkLocal) continue;
+                if (string.Equals(family, "ipv4", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (string.Equals(addr, configuredHost, StringComparison.OrdinalIgnoreCase))
+                    {
+                        bestIface = iface;
+                        bestIp = addr;
+                        break;
+                    }
+                    bestIface ??= iface;
+                    bestIp ??= addr;
+                }
+            }
+            if (string.Equals(bestIp, configuredHost, StringComparison.OrdinalIgnoreCase)) break;
+        }
+
+        if (bestIface is null) return null;
+        var lower = bestIface.ToLowerInvariant();
+        var kind = lower.StartsWith("wlan") || lower.StartsWith("wl")
+            ? "Wi-Fi"
+            : lower.StartsWith("eth") || lower.StartsWith("en")
+                ? "Ethernet"
+                : bestIface;
+        return bestIp is not null ? $"{kind} · {bestIp} ({bestIface})" : $"{kind} ({bestIface})";
+    }
+
     private void PublishCurrent()
     {
         if (_config is null) return;
-        var status = ParseMoonrakerStatus(_objects, _fileMeta, _klipperVersion, _lightObject, _config);
+        var status = ParseMoonrakerStatus(_objects, _fileMeta, _klipperVersion, _lightObject, _config,
+            _networkText, _storageText, _liveViewEnabled);
         var canceled = _lastCanceled && status.State is JobState.Idle or JobState.Failed;
         if (status.State.IsActive()) _lastCanceled = false;
         if (canceled && status.State == JobState.Failed) status.Canceled = true;
@@ -519,7 +652,8 @@ public sealed class MoonrakerConnection : IDisposable
     // MARK: - Moonraker -> PrinterStatus Parser
 
     public static PrinterStatus ParseMoonrakerStatus(
-        JsonObject objects, JsonObject? fileMeta, string? klipperVersion, string? lightObject, PrinterConfig config)
+        JsonObject objects, JsonObject? fileMeta, string? klipperVersion, string? lightObject, PrinterConfig config,
+        string? networkText = null, string? storageText = null, bool? liveViewEnabled = null)
     {
         var printStats = objects["print_stats"] as JsonObject;
         var sdcard = objects["virtual_sdcard"] as JsonObject;
@@ -749,6 +883,10 @@ public sealed class MoonrakerConnection : IDisposable
             ExhaustFan = exhaustFan,
             Speed = speed,
             ChamberLightOn = chamberLight,
+            NetworkText = networkText ?? (config.Endpoint.Host.Length > 0 ? $"Connected · {config.Endpoint.Host}" : null),
+            StorageText = storageText ?? (sdcard is not null ? "Internal storage ready" : null),
+            HasSdCard = storageText is not null || sdcard is not null ? true : null,
+            LiveViewEnabled = liveViewEnabled ?? (string.Equals(config.ModelCode, "SM-U1", StringComparison.OrdinalIgnoreCase) ? true : null),
             Ams = amsUnits.ToValueList(),
             ActiveSpoolId = amsUnits.Count > 0 ? activeExtruderIdx : null,
             Issues = issues.ToValueList(),
