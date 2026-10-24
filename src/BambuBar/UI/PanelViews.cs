@@ -429,8 +429,16 @@ public static class PanelViews
     /// <summary>The tray panel's list of every printer: one row each, click to see it.</summary>
     public static FrameworkElement FleetList(Action<PrinterSession> open)
     {
+        var sessions = Store.DisplayedFleetSessions;
+        if (sessions.Count == 0 && Store.FleetActiveOnly)
+        {
+            return Panel(Row(10,
+                Icons.Make(Icon.Moon, 14, Theme.Secondary),
+                Grow(Text("No printers are actively printing right now.", 12, color: Theme.Secondary)),
+                Push("Show All", () => Store.FleetActiveOnly = false, small: true)), 14, 12);
+        }
         var column = new Flex { Orientation = Orientation.Vertical, Spacing = 6 };
-        foreach (var session in Store.FleetSessions)
+        foreach (var session in sessions)
         {
             var s = session.Status;
             var detail = s is not null && session.IsOnline && (s.State.IsActive() || s.State == JobState.Finished)

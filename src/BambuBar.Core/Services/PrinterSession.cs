@@ -34,6 +34,7 @@ public sealed class PrinterSession : IDisposable
     public event Action? Changed;
 
     private readonly PrinterConnection _connection = new();
+    private readonly MoonrakerConnection _moonraker = new();
     private readonly ICredentialStore _credentials;
     private DemoDriver? _demo;
     private bool _insecure;
@@ -46,21 +47,30 @@ public sealed class PrinterSession : IDisposable
         _credentials = credentials;
         _connection.PhaseChanged += OnPhaseChanged;
         _connection.StatusChanged += (status, doc) => Received(status, ReportParser.WasCanceled(doc));
-        _connection.Acknowledged += (command, ok, reason) =>
+        _connection.Acknowledged += OnBackendAcknowledged;
+        _connection.Heartbeat += OnBackendHeartbeat;
+
+        _moonraker.PhaseChanged += OnPhaseChanged;
+        _moonraker.StatusChanged += Received;
+        _moonraker.Acknowledged += OnBackendAcknowledged;
+        _moonraker.Heartbeat += OnBackendHeartbeat;
+    }
+
+    private void OnBackendAcknowledged(string command, bool ok, string? reason)
+    {
+        if (!ok) { PendingLight = null; PendingSpeed = null; Changed?.Invoke(); }
+        Acknowledged?.Invoke(this, command, ok, reason);
+    }
+
+    private void OnBackendHeartbeat()
+    {
+        // Whole seconds are enough for the label and spare the UI an update per message.
+        if (LastHeard is not DateTime heard || DateTime.UtcNow - heard >= TimeSpan.FromSeconds(1))
         {
-            if (!ok) { PendingLight = null; PendingSpeed = null; Changed?.Invoke(); }
-            Acknowledged?.Invoke(this, command, ok, reason);
-        };
-        _connection.Heartbeat += () =>
-        {
-            // Whole seconds are enough for the label and spare the UI an update per message.
-            if (LastHeard is not DateTime heard || DateTime.UtcNow - heard >= TimeSpan.FromSeconds(1))
-            {
-                LastHeard = DateTime.UtcNow;
-                Changed?.Invoke();
-            }
-            Heartbeat?.Invoke(this);
-        };
+            LastHeard = DateTime.UtcNow;
+            Changed?.Invoke();
+        }
+        Heartbeat?.Invoke(this);
     }
 
     // MARK: - Lifecycle
@@ -71,7 +81,16 @@ public sealed class PrinterSession : IDisposable
         FallbackCodes = (alternatives ?? []).Where(c => c != accessCode).ToList();
         Status = null;
         HasBaseline = false;
-        _connection.Start(Config, accessCode, insecure);
+        if (Config.Protocol == PrinterProtocol.Moonraker)
+        {
+            _connection.Stop();
+            _moonraker.Start(Config, accessCode);
+        }
+        else
+        {
+            _moonraker.Stop();
+            _connection.Start(Config, accessCode, insecure);
+        }
         Changed?.Invoke();
     }
 
@@ -86,11 +105,16 @@ public sealed class PrinterSession : IDisposable
     }
 
     /// <summary>Shows a scripted status, as if the printer had reported it (snapshots).</summary>
-    public void ShowDemoStatus(PrinterStatus status) => Received(status, status.Canceled);
+    public void ShowDemoStatus(PrinterStatus status)
+    {
+        Phase = ConnectionPhase.OnlinePhase;
+        Received(status, status.Canceled);
+    }
 
     public void Stop()
     {
         _connection.Stop();
+        _moonraker.Stop();
         _demo?.Stop();
         Phase = ConnectionPhase.IdlePhase;
         Changed?.Invoke();
@@ -101,18 +125,25 @@ public sealed class PrinterSession : IDisposable
         _pendingTimer?.Dispose();
         _demo?.Stop();
         _connection.Dispose();
+        _moonraker.Dispose();
     }
 
     public void Refresh()
     {
-        if (_demo is null) _connection.Refresh();
+        if (_demo is not null) return;
+        if (Config.Protocol == PrinterProtocol.Moonraker) _moonraker.Refresh();
+        else _connection.Refresh();
     }
 
     /// <summary>Reconnects with the stored code, e.g. after the printer moved to a new IP address.</summary>
     public void Restart()
     {
-        if (_demo is not null || _credentials.AccessCode(Config.Serial) is not { } code) return;
-        _connection.Start(Config, code, _insecure);
+        if (_demo is not null) return;
+        var code = _credentials.AccessCode(Config.Serial) ?? "";
+        if (Config.Protocol == PrinterProtocol.Moonraker)
+            _moonraker.Start(Config, code);
+        else if (code.Length > 0)
+            _connection.Start(Config, code, _insecure);
     }
 
     // MARK: - Derived
@@ -129,7 +160,7 @@ public sealed class PrinterSession : IDisposable
         ConnectionPhase.Connecting => "Connecting…",
         ConnectionPhase.Online => "Connected",
         ConnectionPhase.Offline => "Offline",
-        ConnectionPhase.Unauthorized => "Access code rejected",
+        ConnectionPhase.Unauthorized => Config.Protocol == PrinterProtocol.Moonraker ? "API key rejected" : "Access code rejected",
         ConnectionPhase.CertificateRejected => "Certificate not trusted",
         _ => "",
     };
@@ -137,7 +168,9 @@ public sealed class PrinterSession : IDisposable
     public string? LinkDetail => Phase switch
     {
         ConnectionPhase.Offline offline => offline.Reason,
-        ConnectionPhase.Unauthorized => "Check the access code on the printer's screen (Settings → Network) and enter it again.",
+        ConnectionPhase.Unauthorized => Config.Protocol == PrinterProtocol.Moonraker
+            ? "Moonraker rejected the request. Check the API key if authentication is enabled in moonraker.conf."
+            : "Check the access code on the printer's screen (Settings → Network) and enter it again.",
         ConnectionPhase.CertificateRejected rejected => $"The printer's TLS certificate couldn't be verified: {rejected.Reason}",
         _ => null,
     };
@@ -171,6 +204,10 @@ public sealed class PrinterSession : IDisposable
 
     public bool NeedsAttention => AttentionRank.Group <= 1;
 
+    /// <summary>True when the printer is actively printing, preparing, paused, or needs attention.</summary>
+    public bool IsActiveOrNeedsAttention =>
+        NeedsAttention || (IsOnline && Status?.State.IsActive() == true);
+
     /// <summary>The line under the name: what went wrong, else the job, else the model.</summary>
     public string FleetDetail
     {
@@ -185,15 +222,34 @@ public sealed class PrinterSession : IDisposable
 
     // MARK: - Commands
 
-    public void Pause() { if (_demo is not null) _demo.Pause(); else _connection.Pause(); }
-    public void Resume() { if (_demo is not null) _demo.Resume(); else _connection.Resume(); }
-    public void StopPrint() { if (_demo is not null) _demo.StopPrint(); else _connection.StopPrint(); }
+    public void Pause()
+    {
+        if (_demo is not null) _demo.Pause();
+        else if (Config.Protocol == PrinterProtocol.Moonraker) _moonraker.Pause();
+        else _connection.Pause();
+    }
+
+    public void Resume()
+    {
+        if (_demo is not null) _demo.Resume();
+        else if (Config.Protocol == PrinterProtocol.Moonraker) _moonraker.Resume();
+        else _connection.Resume();
+    }
+
+    public void StopPrint()
+    {
+        if (_demo is not null) _demo.StopPrint();
+        else if (Config.Protocol == PrinterProtocol.Moonraker) _moonraker.StopPrint();
+        else _connection.StopPrint();
+    }
 
     public void ToggleLight()
     {
         var on = !ChamberLightOn;
         PendingLight = on;
-        if (_demo is not null) _demo.SetLight(on); else _connection.SetChamberLight(on);
+        if (_demo is not null) _demo.SetLight(on);
+        else if (Config.Protocol == PrinterProtocol.Moonraker) _moonraker.SetChamberLight(on);
+        else _connection.SetChamberLight(on);
         ClearPendingSoon();
         Changed?.Invoke();
     }
@@ -201,7 +257,9 @@ public sealed class PrinterSession : IDisposable
     public void SetSpeed(SpeedLevel level)
     {
         PendingSpeed = level;
-        if (_demo is not null) _demo.SetSpeed(level); else _connection.SetSpeed(level);
+        if (_demo is not null) _demo.SetSpeed(level);
+        else if (Config.Protocol == PrinterProtocol.Moonraker) _moonraker.SetSpeed(level);
+        else _connection.SetSpeed(level);
         ClearPendingSoon();
         Changed?.Invoke();
     }

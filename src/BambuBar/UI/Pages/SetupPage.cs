@@ -32,6 +32,7 @@ public sealed class SetupPage : ContentControl
     private readonly CheckBox _openAtLogin = new() { IsChecked = true, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 2, 0, 0) };
     private readonly PrinterArtView _heroArt = new(PrinterArt.For(SamplePrinter.Status()), 150, 180);
 
+    private PrinterProtocol _protocol = PrinterProtocol.BambuLan;
     private string _modelCode = "N7";
     private string? _selected;
     private bool _manual;
@@ -72,7 +73,7 @@ public sealed class SetupPage : ContentControl
 
     private object Key() => (Store.IsConfigured, Store.Phase, Store.LinkDetail, Store.IsDemo, Navigation.SetupCandidate,
         string.Join("|", Store.Discovered.Select(d => d.GetHashCode())), Store.SlicerPrinters, Store.Sessions.Count,
-        _selected, _manual, _codeSource, _importNote, _dropTargeted, CanConnect, _code.Password.Length == 0);
+        _protocol, _modelCode, _selected, _manual, _codeSource, _importNote, _dropTargeted, CanConnect, _code.Password.Length == 0);
 
     private bool Adding => Store.IsConfigured;
 
@@ -86,6 +87,7 @@ public sealed class SetupPage : ContentControl
     /// <summary>Reacts to what changed since the last build, like SwiftUI's onChange.</summary>
     private void Sync()
     {
+        if (_protocol != PrinterProtocol.BambuLan) return;
         if (!ReferenceEquals(_seenSlicerPrinters, Store.SlicerPrinters))
         {
             _seenSlicerPrinters = Store.SlicerPrinters;
@@ -113,25 +115,34 @@ public sealed class SetupPage : ContentControl
                 Push("Cancel", () => Navigation.AddingPrinter = false))
             : Hero());
 
-        // 1 Choose your printer
-        var fresh = NewPrinters;
-        var choose = new List<UIElement?>
-        {
-            Row(8, Grow(SectionLabel("1  Choose your printer")), fresh.Count == 0 ? new Spinner(12) : null,
-                Push("Search Again", Store.SearchForPrinters, small: true)),
-        };
-        if (fresh.Count == 0 && !_manual)
-            choose.Add(Panel(Row(10, Icons.Make(Icon.Wifi, 13, Theme.Secondary).Aligned(vertical: VerticalAlignment.Top),
-                Grow(Text("Looking for printers on this network. Printers announce themselves every few seconds; make sure yours is on and on the same network as this PC. The first time, Windows may ask whether Bambu Bar can use private networks: allow it, or printers can't be found.", 12, color: Theme.Secondary, wrap: true))), 14, 12));
-        if (Store.ReadySlicerPrinters is { Count: >= 2 } ready) choose.Add(AddAllCard(ready));
-        foreach (var printer in fresh) choose.Add(DiscoveredRow(printer));
-        foreach (var printer in SlicerOnlyPrinters)
-            choose.Add(DiscoveredRow(new DiscoveredPrinter { Serial = printer.Serial, Host = printer.Host ?? "", Name = printer.Serial, LastSeen = DateTime.MinValue }));
-        choose.Add(ManualEntry());
-        rows.Add(Column(10, [.. choose]));
+        rows.Add(ProtocolSelector());
 
-        // 2 Access code
-        rows.Add(Column(10, SectionLabel("2  Access code"), _codeSource is { } source ? FoundCode(source) : CodeEntry()));
+        if (_protocol == PrinterProtocol.Moonraker)
+        {
+            rows.Add(MoonrakerEntry());
+        }
+        else
+        {
+            // 1 Choose your printer
+            var fresh = NewPrinters;
+            var choose = new List<UIElement?>
+            {
+                Row(8, Grow(SectionLabel("1  Choose your printer")), fresh.Count == 0 ? new Spinner(12) : null,
+                    Push("Search Again", Store.SearchForPrinters, small: true)),
+            };
+            if (fresh.Count == 0 && !_manual)
+                choose.Add(Panel(Row(10, Icons.Make(Icon.Wifi, 13, Theme.Secondary).Aligned(vertical: VerticalAlignment.Top),
+                    Grow(Text("Looking for printers on this network. Printers announce themselves every few seconds; make sure yours is on and on the same network as this PC. The first time, Windows may ask whether Bambu Bar can use private networks: allow it, or printers can't be found.", 12, color: Theme.Secondary, wrap: true))), 14, 12));
+            if (Store.ReadySlicerPrinters is { Count: >= 2 } ready) choose.Add(AddAllCard(ready));
+            foreach (var printer in fresh) choose.Add(DiscoveredRow(printer));
+            foreach (var printer in SlicerOnlyPrinters)
+                choose.Add(DiscoveredRow(new DiscoveredPrinter { Serial = printer.Serial, Host = printer.Host ?? "", Name = printer.Serial, LastSeen = DateTime.MinValue }));
+            choose.Add(ManualEntry());
+            rows.Add(Column(10, [.. choose]));
+
+            // 2 Access code
+            rows.Add(Column(10, SectionLabel("2  Access code"), _codeSource is { } source ? FoundCode(source) : CodeEntry()));
+        }
 
         if (!Adding)
         {
@@ -151,6 +162,62 @@ public sealed class SetupPage : ContentControl
             actions.Add(Grow(Row(6, Icons.Make(Icon.Warning, 12, Theme.Brush(Palette.Paused)), Grow(Text(detail, 12, color: Theme.Brush(Palette.Paused), wrap: true)))));
         rows.Add(Row(12, [.. actions]));
         return Column(22, [.. rows]);
+    }
+
+    private FrameworkElement ProtocolSelector()
+    {
+        FrameworkElement Tab(string title, string subtitle, PrinterProtocol proto, string defaultModel, string defaultName)
+        {
+            var active = _protocol == proto;
+            var marker = active
+                ? Icons.Make(Icon.CheckCircle, 16, Theme.Brush(Palette.Accent))
+                : new System.Windows.Shapes.Ellipse { Width = 14, Height = 14, Stroke = Theme.Secondary, StrokeThickness = 1.3, Margin = new Thickness(1) };
+            var card = Panel(Row(10, marker, Grow(Column(2, Text(title, 12.5, Semibold), Text(subtitle, 11, color: Theme.Secondary)))),
+                12, 10, active ? Palette.Accent : null);
+            return Button(card, () =>
+            {
+                if (_protocol == proto) return;
+                _protocol = proto;
+                _modelCode = defaultModel;
+                if (proto == PrinterProtocol.Moonraker && string.IsNullOrWhiteSpace(_name.Text)) Set(_name, defaultName);
+                Live.Invalidate();
+            }, t => card.Opacity = t.IsPressed ? 0.85 : 1);
+        }
+
+        return Column(8,
+            SectionLabel("Printer Type"),
+            Row(10,
+                Grow(Tab("Bambu Lab (LAN)", "X1, P1, P2S, A1, H2 series via local MQTT", PrinterProtocol.BambuLan, "N7", "")),
+                Grow(Tab("Snapmaker U1 / Fluidd", "paxx12 firmware, Moonraker, Klipper & Mainsail", PrinterProtocol.Moonraker, "SM-U1", "Snapmaker U1"))));
+    }
+
+    private FrameworkElement MoonrakerEntry()
+    {
+        var modelPicker = new ComboBox { Width = 280, HorizontalAlignment = HorizontalAlignment.Left };
+        modelPicker.Items.Add(new ComboBoxItem { Content = "Snapmaker U1 (paxx12 / Fluidd)", Tag = "SM-U1" });
+        modelPicker.Items.Add(new ComboBoxItem { Content = "Klipper / Fluidd / Mainsail (Generic)", Tag = "KLIPPER" });
+        modelPicker.SelectedIndex = _modelCode == "KLIPPER" ? 1 : 0;
+        modelPicker.SelectionChanged += (_, _) =>
+        {
+            if (modelPicker.SelectedItem is ComboBoxItem { Tag: string code } && _modelCode != code)
+            {
+                _modelCode = code;
+                if (_name.Text is "" or "Snapmaker U1" or "Fluidd Printer")
+                    Set(_name, code == "SM-U1" ? "Snapmaker U1" : "Fluidd Printer");
+                Live.Invalidate();
+            }
+        };
+
+        var help = Rich("Enter the IP address or hostname you use to open the **Fluidd** dashboard (e.g. `192.168.1.60` or `192.168.1.60:7125`). Bambu Bar connects to **Moonraker** over WebSocket + HTTP automatically.", 11.5, Theme.Secondary);
+        return Column(10,
+            SectionLabel("1  Fluidd / Moonraker Connection"),
+            Panel(Column(12,
+                help,
+                Row(8, Text("Model", 12, color: Theme.Secondary).Sized(110), modelPicker),
+                FieldRow("IP / Host", _host),
+                FieldRow("Name", _name),
+                Row(8, Text("API key (optional)", 12, color: Theme.Secondary).Sized(110), Reuse.Place(_code)),
+                Text("Leave API key blank unless your Moonraker server requires an X-Api-Key header.", 11, color: Theme.Tertiary)), 16, 14));
     }
 
     private FrameworkElement Hero()
@@ -381,8 +448,9 @@ public sealed class SetupPage : ContentControl
         }
     }
 
-    private bool CanConnect =>
-        _host.Text.Trim().Length > 0 && _serial.Text.Trim().Length > 0 && _code.Password.Trim().Length >= 4 && Store.Phase is not ConnectionPhase.Connecting;
+    private bool CanConnect => _protocol == PrinterProtocol.Moonraker
+        ? _host.Text.Trim().Length > 0 && Store.Phase is not ConnectionPhase.Connecting
+        : _host.Text.Trim().Length > 0 && _serial.Text.Trim().Length > 0 && _code.Password.Trim().Length >= 4 && Store.Phase is not ConnectionPhase.Connecting;
 
     private void OnEnter(object sender, KeyEventArgs e)
     {
@@ -394,10 +462,26 @@ public sealed class SetupPage : ContentControl
     private void Connect()
     {
         if (!CanConnect) return;
-        var serial = _serial.Text.Trim().ToUpperInvariant();
+        var host = _host.Text.Trim();
+        string serial;
+        if (_protocol == PrinterProtocol.Moonraker)
+        {
+            var prefix = _modelCode == "KLIPPER" ? "KLP" : "SMU";
+            var sanitized = new string(host.Select(c => char.IsLetterOrDigit(c) ? char.ToUpperInvariant(c) : '-').ToArray()).Trim('-');
+            serial = _serial.Text.Trim().Length > 0 ? _serial.Text.Trim().ToUpperInvariant() : $"{prefix}-{sanitized}";
+        }
+        else
+        {
+            serial = _serial.Text.Trim().ToUpperInvariant();
+        }
+        var defaultName = _protocol == PrinterProtocol.Moonraker ? (_modelCode == "KLIPPER" ? "Fluidd Printer" : "Snapmaker U1") : serial;
         var config = new PrinterConfig
         {
-            Host = _host.Text.Trim(), Serial = serial, Name = _name.Text.Trim().Length == 0 ? serial : _name.Text.Trim(), ModelCode = _modelCode,
+            Host = host,
+            Serial = serial,
+            Name = _name.Text.Trim().Length == 0 ? defaultName : _name.Text.Trim(),
+            ModelCode = _protocol == PrinterProtocol.Moonraker && _modelCode == "N7" ? "SM-U1" : _modelCode,
+            Protocol = _protocol,
         };
         var firstPrinter = !Adding;
         Store.Connect(config, _code.Password.Trim(), _alternativeCodes);

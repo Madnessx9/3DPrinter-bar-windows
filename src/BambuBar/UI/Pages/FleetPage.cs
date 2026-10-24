@@ -14,23 +14,39 @@ public static class FleetPage
 {
     private static PrinterStore Store => PrinterStore.Shared;
 
-    public static object Key() => string.Join("|", Store.Sessions.Select(s => (s.Id, s.Config.Name, s.Status, s.Phase).GetHashCode()));
+    public static object Key() => (Store.FleetActiveOnly, string.Join("|", Store.Sessions.Select(s => (s.Id, s.Config.Name, s.Status, s.Phase).GetHashCode())));
 
     public static UIElement Build()
     {
-        var grid = new AdaptiveGrid { MinColumnWidth = 250, Spacing = 14 };
-        foreach (var session in Store.FleetSessions)
+        var sessions = Store.DisplayedFleetSessions;
+        UIElement body;
+        if (sessions.Count == 0 && Store.FleetActiveOnly)
         {
-            var id = session.Id;
-            grid.Children.Add(FleetCard(session, () =>
-            {
-                Store.Select(id);
-                Navigation.Shared.Section = AppSection.Overview;
-            }));
+            body = Panel(Row(12,
+                Icons.Make(Icon.Moon, 15, Theme.Secondary),
+                Grow(Text("No printers are actively printing right now.", 13, color: Theme.Secondary)),
+                Push("Show All Printers", () => Store.FleetActiveOnly = false)), 18, 16);
         }
+        else
+        {
+            var grid = new AdaptiveGrid { MinColumnWidth = 250, Spacing = 14 };
+            foreach (var session in sessions)
+            {
+                var id = session.Id;
+                grid.Children.Add(FleetCard(session, () =>
+                {
+                    Store.Select(id);
+                    Navigation.Shared.Section = AppSection.Overview;
+                }));
+            }
+            body = grid;
+        }
+        var actions = Row(8,
+            Push(Store.FleetActiveOnly ? "Showing Active Only" : "Active Only", () => Store.FleetActiveOnly = !Store.FleetActiveOnly, accent: Store.FleetActiveOnly),
+            Push("Add Printer…", Shell.AddPrinter));
         return Column(18,
-            PageHeader("All Printers", $"{Store.Sessions.Count} printers · {Store.FleetSummary}", Push("Add Printer…", Shell.AddPrinter)),
-            grid);
+            PageHeader(Store.FleetActiveOnly ? "Active Printers" : "All Printers", $"{Store.Sessions.Count} printers · {Store.FleetSummary}", actions),
+            body);
     }
 
     /// <summary>One printer in the fleet grid: its render, state and job.</summary>

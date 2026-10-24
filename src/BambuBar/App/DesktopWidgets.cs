@@ -145,22 +145,45 @@ internal sealed class WidgetWindow : Window
 
     private IntPtr Handle => new WindowInteropHelper(this).Handle;
 
+    public const string ActivePrintersSerial = "__active__";
+    public const string AllPrintersSerial = "__all__";
+
+    private bool IsFleetWidget => Placement.Serial is ActivePrintersSerial or AllPrintersSerial;
+
     private SharedSnapshot Snapshot() => Store.Fleet.SnapshotFor(Placement.Serial);
 
     /// <summary>Rebuilds when the printer's data changes, and once a minute for the projected time left; not on every
     /// tick. SavedAt changes with every read, so it's left out.</summary>
     private object Key()
     {
-        var snapshot = Snapshot() with { SavedAt = default };
         var now = DateTime.UtcNow;
+        if (IsFleetWidget)
+        {
+            var fleetKey = string.Join("|", Store.FleetSessions.Select(s => (s.Id, s.Config.Name, s.Status, s.Phase).GetHashCode()));
+            return (Placement.Serial, fleetKey, now.Minute);
+        }
+        var snapshot = Snapshot() with { SavedAt = default };
         var state = new WidgetState(snapshot, now);
         return (snapshot, Placement.Size, state.PercentText, state.MinutesLeft, now.Minute);
     }
 
-    private UIElement Build() => WidgetViews.Framed(Placement.Size, Snapshot(), DateTime.UtcNow);
+    private UIElement Build()
+    {
+        if (IsFleetWidget)
+        {
+            var snapshots = Store.FleetSessions.Select(Store.SnapshotOf).ToList();
+            return WidgetViews.FleetFramed(snapshots, activeOnly: Placement.Serial == ActivePrintersSerial, DateTime.UtcNow);
+        }
+        return WidgetViews.Framed(Placement.Size, Snapshot(), DateTime.UtcNow);
+    }
 
     private void OpenPrinter()
     {
+        if (IsFleetWidget)
+        {
+            Shell.ShowMainWindow(Store.HasMultiplePrinters ? AppSection.Fleet : AppSection.Overview);
+            return;
+        }
         var serial = Snapshot().Serial;
         if (Store.Session(serial) is not null) Store.Select(serial);
         Shell.ShowMainWindow(AppSection.Overview);
@@ -169,25 +192,30 @@ internal sealed class WidgetWindow : Window
     private void ShowMenu()
     {
         var menu = new ContextMenu { PlacementTarget = this, Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint };
-        if (Store.HasMultiplePrinters || Placement.Serial is not null)
+        var printer = new MenuItem { Header = "Printer" };
+        printer.Items.Add(Check("All Active Printers", Placement.Serial == ActivePrintersSerial, () => Change(Placement with { Serial = ActivePrintersSerial })));
+        printer.Items.Add(Check("All Printers", Placement.Serial == AllPrintersSerial, () => Change(Placement with { Serial = AllPrintersSerial })));
+        printer.Items.Add(Check("Follow the tray icon", Placement.Serial is null, () => Change(Placement with { Serial = null })));
+        if (Store.Sessions.Count > 0)
         {
-            var printer = new MenuItem { Header = "Printer" };
-            printer.Items.Add(Check("Follow the tray icon", Placement.Serial is null, () => Change(Placement with { Serial = null })));
             printer.Items.Add(new Separator());
             foreach (var session in Store.Sessions)
             {
                 var id = session.Id;
                 printer.Items.Add(Check(session.Config.Name, Placement.Serial == id, () => Change(Placement with { Serial = id })));
             }
-            menu.Items.Add(printer);
         }
-        var size = new MenuItem { Header = "Size" };
-        foreach (var s in Enum.GetValues<WidgetSize>())
+        menu.Items.Add(printer);
+        if (!IsFleetWidget)
         {
-            var chosen = s;
-            size.Items.Add(Check(s.Title(), Placement.Size == s, () => Change(Placement with { Size = chosen })));
+            var size = new MenuItem { Header = "Size" };
+            foreach (var s in Enum.GetValues<WidgetSize>())
+            {
+                var chosen = s;
+                size.Items.Add(Check(s.Title(), Placement.Size == s, () => Change(Placement with { Size = chosen })));
+            }
+            menu.Items.Add(size);
         }
-        menu.Items.Add(size);
         menu.Items.Add(Check("Keep Above Other Windows", Placement.OnTop, () =>
         {
             Change(Placement with { OnTop = !Placement.OnTop });

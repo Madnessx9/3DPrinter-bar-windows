@@ -57,6 +57,8 @@ public sealed class PrinterModel
     public required string Code { get; init; }
     /// <summary>"P2S", "X1 Carbon"…</summary>
     public required string Name { get; init; }
+    /// <summary>Maker name ("Bambu Lab", "Snapmaker", "Klipper").</summary>
+    public string Brand { get; init; } = "Bambu Lab";
     public required PrinterShape Shape { get; init; }
     /// <summary>The first three characters of its serial numbers.</summary>
     public required string SerialPrefix { get; init; }
@@ -84,6 +86,8 @@ public sealed class PrinterModel
     /// <summary>Takes the laser and cutting modules (H2 family).</summary>
     public bool HasLaserModule { get; init; }
 
+    public string FullName => Name.StartsWith(Brand, StringComparison.OrdinalIgnoreCase) ? Name : $"{Brand} {Name}";
+
     public string BuildVolumeText => $"{BuildVolume.X} × {BuildVolume.Y} × {BuildVolume.Z} mm";
 
     public string ChamberText =>
@@ -96,9 +100,9 @@ public sealed class PrinterModel
 
     private static PrinterModel M(string code, string name, PrinterShape shape, string prefix, bool enclosed, bool sensor,
         int? heater, bool aux, bool chamberFan, bool humidity, bool lite, int nozzles, int nozzleMax, int bedMax,
-        (int, int, int) volume, bool lidar, bool laser) => new()
+        (int, int, int) volume, bool lidar, bool laser, string brand = "Bambu Lab") => new()
     {
-        Code = code, Name = name, Shape = shape, SerialPrefix = prefix, IsEnclosed = enclosed, HasChamberSensor = sensor,
+        Code = code, Name = name, Brand = brand, Shape = shape, SerialPrefix = prefix, IsEnclosed = enclosed, HasChamberSensor = sensor,
         ChamberHeaterMax = heater, HasAuxFan = aux, HasChamberFan = chamberFan, HasAmsHumidity = humidity, UsesAmsLite = lite,
         NozzleCount = nozzles, NozzleMax = nozzleMax, BedMax = bedMax, BuildVolume = volume, HasLidar = lidar, HasLaserModule = laser,
     };
@@ -119,12 +123,15 @@ public sealed class PrinterModel
         M("O1E", "H2D Pro", PrinterShape.Wide, "239", true, true, 65, true, true, true, false, 2, 350, 120, (350, 320, 325), false, true),
         M("O1C", "H2C", PrinterShape.Wide, "31B", true, true, 65, true, true, true, false, 2, 350, 120, (330, 320, 325), false, true),
         M("O1S", "H2S", PrinterShape.Wide, "093", true, true, 65, true, true, true, false, 1, 350, 120, (340, 320, 340), false, true),
+        M("SM-U1", "U1", PrinterShape.Wide, "SMU", true, true, null, true, true, false, false, 2, 300, 100, (270, 270, 270), false, false, "Snapmaker"),
+        M("KLIPPER", "Klipper", PrinterShape.Enclosed, "KLP", true, true, null, true, true, false, false, 1, 300, 120, (250, 250, 250), false, false, "Fluidd"),
     ];
 
     /// <summary>Other ids the same models report (older firmware, Pro and V2 variants).</summary>
     private static readonly Dictionary<string, string> Aliases = new()
     {
         ["BL-P003"] = "C13", ["A12"] = "N1", ["A04"] = "N1", ["A11"] = "N2S", ["O2D"] = "O1E", ["O1C2"] = "O1C",
+        ["U1"] = "SM-U1", ["SNAPMAKER U1"] = "SM-U1", ["FLUIDD"] = "KLIPPER", ["MOONRAKER"] = "KLIPPER",
     };
 
     /// <summary>By model id, then by serial prefix.</summary>
@@ -141,10 +148,12 @@ public sealed class PrinterModel
     public static PrinterModel? Named(string? name)
     {
         if (string.IsNullOrEmpty(name)) return null;
-        return All.FirstOrDefault(m => string.Equals(m.Name, name, StringComparison.OrdinalIgnoreCase)) ?? Find(name);
+        return All.FirstOrDefault(m => string.Equals(m.Name, name, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(m.FullName, name, StringComparison.OrdinalIgnoreCase)) ?? Find(name);
     }
 
     public static string NameFor(string code, string serial = "") => Find(code, serial)?.Name ?? "Bambu Lab printer";
+    public static string FullNameFor(string code, string serial = "") => Find(code, serial)?.FullName ?? "Bambu Lab printer";
 }
 
 public static class PrinterStatusFitting

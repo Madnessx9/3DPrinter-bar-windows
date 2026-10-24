@@ -77,7 +77,7 @@ public sealed class PrinterStore
         public const string Printers = "printers", Selected = "selectedPrinter", MenuBarPrinter = "menuBarPrinter",
             MenuBarStyle = "menuBarStyle", NotifyFinished = "notifyFinished", NotifyFailed = "notifyFailed",
             NotifyPaused = "notifyPaused", NotifyStarted = "notifyStarted", ConfirmStop = "confirmStop",
-            PanelShowsAll = "panelShowsAllPrinters";
+            PanelShowsAll = "panelShowsAllPrinters", FleetActiveOnly = "fleetActiveOnly";
     }
 
     public PrinterStore(SettingsStore settings, ICredentialStore credentials, INotifier notifier, HistoryStore history,
@@ -118,11 +118,18 @@ public sealed class PrinterStore
         set { _settings.Set(Keys.ConfirmStop, value); NotifyChanged(); }
     }
 
-    /// <summary>The tray panel lists every printer instead of showing one.</summary>
+    /// <summary>The tray panel lists every printer instead of showing one (defaults to true when multiple printers are configured).</summary>
     public bool PanelShowsAll
     {
-        get => _settings.GetBool(Keys.PanelShowsAll) ?? false;
+        get => _settings.GetBool(Keys.PanelShowsAll) ?? true;
         set { _settings.Set(Keys.PanelShowsAll, value); NotifyChanged(); }
+    }
+
+    /// <summary>Filter fleet views (tray panel and All Printers page) to only show active/printing printers.</summary>
+    public bool FleetActiveOnly
+    {
+        get => _settings.GetBool(Keys.FleetActiveOnly) ?? false;
+        set { _settings.Set(Keys.FleetActiveOnly, value); NotifyChanged(); }
     }
 
     private void SetNotify(string key, bool value)
@@ -180,7 +187,10 @@ public sealed class PrinterStore
         foreach (var config in LoadConfigs())
         {
             var session = Add(config);
-            if (_credentials.AccessCode(config.Serial) is { } code) session.Start(code, insecure: _insecureTls);
+            if (config.Protocol == PrinterProtocol.Moonraker)
+                session.Start(_credentials.AccessCode(config.Serial) ?? "", insecure: _insecureTls);
+            else if (_credentials.AccessCode(config.Serial) is { } code)
+                session.Start(code, insecure: _insecureTls);
         }
         History = _historyStore.Load();
         // History from single-printer versions belongs to the printer that was set up then.
@@ -672,6 +682,14 @@ public sealed class PrinterStore
         .OrderBy(s => s.AttentionRank.Group).ThenBy(s => s.AttentionRank.Minutes)
         .ThenBy(s => s.Config.Name, NaturalStringComparer.Instance).ToList();
 
+    /// <summary>Only printers that are currently active (printing, preparing, paused) or need attention.</summary>
+    public List<PrinterSession> ActiveSessions => FleetSessions
+        .Where(s => s.IsActiveOrNeedsAttention).ToList();
+
+    /// <summary>Printers to show in the fleet view, respecting <see cref="FleetActiveOnly"/>.</summary>
+    public List<PrinterSession> DisplayedFleetSessions =>
+        FleetActiveOnly ? ActiveSessions : FleetSessions;
+
     /// <summary>"6 printing · 1 paused · 2 finished · 1 offline".</summary>
     public string FleetSummary
     {
@@ -706,6 +724,7 @@ public sealed class PrinterStore
         };
         if (AppArguments.Current.Has("--fleet"))
         {
+            printers.Add((new PrinterConfig { Host = "192.168.1.60", Serial = "SMU-192-168-1-60", Name = "Snapmaker U1", ModelCode = "SM-U1", Protocol = PrinterProtocol.Moonraker }, DemoDriver.Scenario.Printing));
             printers.Add((new PrinterConfig { Host = "192.168.1.51", Serial = "00M00A000000000", Name = "X1C Garage", ModelCode = "BL-P001" }, DemoDriver.Scenario.Idle));
             printers.Add((new PrinterConfig { Host = "192.168.1.52", Serial = "039000000000000", Name = "A1 Desk", ModelCode = "N2S" }, DemoDriver.Scenario.Paused));
             printers.Add((new PrinterConfig { Host = "192.168.1.53", Serial = "094000000000000", Name = "H2D Studio", ModelCode = "O1D" }, DemoDriver.Scenario.Printing));

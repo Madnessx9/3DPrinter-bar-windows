@@ -103,13 +103,14 @@ public sealed class SettingsPage : ContentControl
         }
         return Row(12,
             new PrinterArtView(PrinterArt.For(session.Status, session.Config.ModelName, dimmed: !session.IsOnline, animated: false), 28, 34),
-            Grow(Column(2, title, Text($"Bambu Lab {session.Config.ModelName} · {session.Config.Host}", 11, color: Theme.Secondary))),
+            Grow(Column(2, title, Text($"{session.Config.FullModelName} · {session.Config.Host}", 11, color: Theme.Secondary))),
             Row(5, SessionDot(session), Text(session.ShortState, 11.5, color: Theme.Secondary)),
             show);
     }
 
     private FrameworkElement Printer(PrinterConfig config)
     {
+        var isMoonraker = config.Protocol == PrinterProtocol.Moonraker;
         var rows = new List<UIElement?>();
         var nameControls = new List<UIElement?>();
         if (_name.Text != config.Name)
@@ -124,15 +125,15 @@ public sealed class SettingsPage : ContentControl
         if (Store.AnnouncedName(config.Serial) is { } announced && announced != config.Name)
             rows.Add(Row(12, Grow(Note($"The printer calls itself “{announced}”. This name is only used in Bambu Bar.")),
                 Push($"Use “{announced}”", () => Store.Rename(config.Serial, announced), small: true)));
-        rows.Add(SettingRow("Model", Text($"Bambu Lab {config.ModelName}", 12.5, color: Theme.Secondary)));
-        rows.Add(SettingRow("Serial number", Selectable(config.Serial)));
+        rows.Add(SettingRow("Model", Text(config.FullModelName, 12.5, color: Theme.Secondary)));
+        rows.Add(SettingRow(isMoonraker ? "Identifier" : "Serial number", Selectable(config.Serial)));
         rows.Add(SettingRow("Status", Row(6, Dot(Store.IsOnline ? Palette.Accent : Palette.Paused, 7), Text(Store.LinkSummary, 12.5, color: Theme.Secondary))));
         if (_editingConnection)
         {
             rows.Add(SettingRow("IP address", Reuse.Place(_host)));
-            rows.Add(SettingRow("Access code", Reuse.Place(_code)));
+            rows.Add(SettingRow(isMoonraker ? "API key (optional)" : "Access code", Reuse.Place(_code)));
             var reconnect = Push("Reconnect", ApplyConnection, accent: true);
-            reconnect.IsEnabled = _host.Text.Length > 0 && _code.Password.Length >= 4;
+            reconnect.IsEnabled = _host.Text.Length > 0 && (isMoonraker || _code.Password.Length >= 4);
             rows.Add(Row(8, Spacer(), Push("Cancel", () => { _editingConnection = false; Live.Invalidate(); }), reconnect));
         }
         else
@@ -162,7 +163,8 @@ public sealed class SettingsPage : ContentControl
 
     private void ApplyConnection()
     {
-        if (Store.Config is not { } config || _host.Text.Trim().Length == 0 || _code.Password.Length < 4) return;
+        if (Store.Config is not { } config || _host.Text.Trim().Length == 0) return;
+        if (config.Protocol != PrinterProtocol.Moonraker && _code.Password.Length < 4) return;
         Store.Connect(config with { Host = _host.Text.Trim() }, _code.Password);
         _editingConnection = false;
         _code.Password = "";

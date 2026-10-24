@@ -432,6 +432,90 @@ public static class WidgetViews
         Child = Column(2, rows), Padding = new Thickness(9, 7, 9, 7), CornerRadius = new CornerRadius(11), Background = Theme.Fill(0.07),
     };
 
+    /// <summary>A unified multi-printer desktop widget showing all active (or all configured) printers at once.</summary>
+    public static Border FleetFramed(IReadOnlyList<SharedSnapshot> snapshots, bool activeOnly, DateTime date, bool shadow = true)
+    {
+        using var dark = Theme.Override(true);
+        var filtered = activeOnly
+            ? snapshots.Where(s => s.Link is SharedSnapshot.LinkState.Online or SharedSnapshot.LinkState.Connecting
+                && s.Status is { } st && (st.State.IsActive() || (st.State == JobState.Failed && !st.Canceled))).ToList()
+            : snapshots.ToList();
+
+        var rows = new List<UIElement?>
+        {
+            Row(6,
+                Icons.Make(Icon.Printer, 11, Theme.Brush(Palette.Accent)),
+                Grow(Text(activeOnly ? "Active Printers" : "All Printers", 12, Semibold)),
+                Text($"{filtered.Count}", 11, Medium, Theme.Secondary, digits: true)),
+        };
+
+        if (filtered.Count == 0)
+        {
+            rows.Add(new Border
+            {
+                Child = Row(8, Icons.Make(Icon.Moon, 13, Theme.Secondary), Text(activeOnly ? "No active prints right now" : "No printers set up", 11.5, color: Theme.Secondary)),
+                Padding = new Thickness(10, 12, 10, 12),
+                CornerRadius = new CornerRadius(12),
+                Background = Theme.Fill(0.06),
+            });
+        }
+        else
+        {
+            foreach (var snap in filtered)
+            {
+                var w = new WidgetState(snap, date);
+                var status = w.Status;
+                var detail = status is not null && status.State.IsActive()
+                    ? Column(4,
+                        FilamentProgressBar(w.Progress, w.Tint, 4),
+                        Row(0,
+                            Text($"{w.PercentText}%", 10.5, Semibold, digits: true),
+                            Spacer(),
+                            Text(w.MinutesLeft is int m ? $"{Format.Duration(m)} left" : status.DetailText, 10, color: Theme.Secondary, digits: true)))
+                    : (UIElement)Text(w.Headline == "Ready" ? $"{snap.Model} · Ready" : w.Headline, 10.5, color: Theme.Secondary);
+
+                var item = Row(10,
+                    new PrinterArtView(PrinterArt.For(status, snap.Model, dimmed: !w.IsLive, animated: false), 28, 34),
+                    Grow(Column(3,
+                        Row(6,
+                            Grow(Text(snap.PrinterName, 12, Semibold)),
+                            Dot(w.StateColor, 6.5),
+                            Text(w.IsLive ? w.StateTitle : "Offline", 10.5, Medium, Theme.Secondary)),
+                        detail)));
+                rows.Add(new Border
+                {
+                    Child = item,
+                    Padding = new Thickness(10, 7, 10, 7),
+                    CornerRadius = new CornerRadius(12),
+                    Background = Theme.Fill(0.07),
+                });
+            }
+        }
+
+        var backdrop = new LinearGradientBrush(Color.FromRgb(41, 43, 46), Color.FromRgb(20, 23, 26), 90);
+        backdrop.Freeze();
+        var card = new Border
+        {
+            CornerRadius = new CornerRadius(22),
+            Background = backdrop,
+            BorderBrush = new SolidColorBrush(Color.FromArgb(31, 255, 255, 255)),
+            BorderThickness = new Thickness(0.75),
+            Width = 364,
+            Padding = new Thickness(14),
+            UseLayoutRounding = true,
+            SnapsToDevicePixels = true,
+            Child = Column(8, [.. rows]),
+        };
+        if (shadow)
+        {
+            card.Effect = new System.Windows.Media.Effects.DropShadowEffect
+            {
+                BlurRadius = 22, ShadowDepth = 6, Direction = 270, Opacity = 0.45, Color = Colors.Black,
+            };
+        }
+        return card;
+    }
+
     // MARK: - Helpers
 
     /// <summary>Shrinks a figure that doesn't fit, like SwiftUI's minimumScaleFactor.</summary>

@@ -96,6 +96,8 @@ public sealed record Spool
     public string? ColorName { get; set; }
     /// <summary>Nozzle temperatures the filament prints at, from the tag or the preset.</summary>
     public IntRange? NozzleRange { get; set; }
+    /// <summary>Custom slot label (e.g. "T1"–"T4" for multi-toolhead printers).</summary>
+    public string? CustomLabel { get; set; }
 
     [JsonIgnore] public bool IsExternal => Id == ExternalId;
 
@@ -125,12 +127,13 @@ public sealed record Spool
         }
     }
 
-    /// <summary>"A1", "A2"… like the printer's screen; "Ext" for the external spool.</summary>
+    /// <summary>"A1", "A2"… like the printer's screen; "T1"–"T4" for toolheads; "Ext" for the external spool.</summary>
     [JsonIgnore]
     public string Label
     {
         get
         {
+            if (!string.IsNullOrEmpty(CustomLabel)) return CustomLabel;
             if (IsExternal) return "Ext";
             if (Unit >= 128) return $"HT{Unit - 127}";
             return $"{(char)(65 + Math.Min(Unit, 25))}{Slot + 1}";
@@ -139,7 +142,7 @@ public sealed record Spool
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<AmsKind>))]
-public enum AmsKind { Ams, Lite, Pro2, Ht }
+public enum AmsKind { Ams, Lite, Pro2, Ht, Toolheads }
 
 public static class AmsKindExtensions
 {
@@ -149,6 +152,7 @@ public static class AmsKindExtensions
         AmsKind.Lite => "AMS Lite",
         AmsKind.Pro2 => "AMS 2 Pro",
         AmsKind.Ht => "AMS HT",
+        AmsKind.Toolheads => "Toolheads",
         _ => "AMS",
     };
 }
@@ -165,9 +169,11 @@ public sealed record AmsUnit
     public int DryingMinutesLeft { get; set; }
     public ValueList<Spool> Spools { get; set; } = [];
 
-    /// <summary>"AMS A", "AMS 2 Pro B"…</summary>
+    /// <summary>"AMS A", "AMS 2 Pro B", or "Toolheads"…</summary>
     [JsonIgnore]
-    public string Title => Id >= 128 ? $"{Kind.Title()} {Id - 127}" : $"{Kind.Title()} {(char)(65 + Math.Min(Id, 25))}";
+    public string Title => Kind == AmsKind.Toolheads
+        ? Kind.Title()
+        : Id >= 128 ? $"{Kind.Title()} {Id - 127}" : $"{Kind.Title()} {(char)(65 + Math.Min(Id, 25))}";
 }
 
 /// <summary>Lower is more severe, as in Bambu's HMS levels.</summary>

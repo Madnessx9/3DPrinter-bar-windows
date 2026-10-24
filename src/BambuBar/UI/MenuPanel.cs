@@ -42,7 +42,7 @@ public sealed class MenuPanel : ContentControl
     }
 
     // The panel rebuilds whenever the store reports; the status record and phase carry everything it shows.
-    private object Key() => (Fleet, Store.SelectedSerial, Store.Current?.Status, Store.Phase, Store.ChamberLightOn, Store.Speed,
+    private object Key() => (Fleet, Store.FleetActiveOnly, Store.SelectedSerial, Store.Current?.Status, Store.Phase, Store.ChamberLightOn, Store.Speed,
         Store.Toast, UpdateChecker.Shared.Offered, Store.Sessions.Count, Store.Discovered.Count, Store.Config,
         Fleet ? string.Join("|", Store.Sessions.Select(s => s.Status?.GetHashCode() ^ s.Phase.GetHashCode())) : null);
 
@@ -80,7 +80,7 @@ public sealed class MenuPanel : ContentControl
         var title = new List<UIElement?>();
         if (Fleet)
         {
-            title.Add(Text("All Printers", 14, Semibold));
+            title.Add(Text(Store.FleetActiveOnly ? "Active Printers" : "All Printers", 14, Semibold));
             title.Add(Text(Store.FleetSummary, 11, color: Theme.Secondary));
         }
         else
@@ -102,6 +102,11 @@ public sealed class MenuPanel : ContentControl
             title.Add(link);
         }
         var buttons = new List<UIElement?> { Grow(Column(1, [.. title])), Spacer(8) };
+        if (Fleet)
+        {
+            buttons.Add(Push(Store.FleetActiveOnly ? "Active" : "All", () => Store.FleetActiveOnly = !Store.FleetActiveOnly,
+                accent: Store.FleetActiveOnly, small: true));
+        }
         if (Store.HasMultiplePrinters)
             buttons.Add(HeaderIcon(Icon.Grid, () => ShowsAll = !ShowsAll, ShowsAll ? "Show one printer" : "Show all printers")
                 .Fade(ShowsAll ? 1 : 0.85));

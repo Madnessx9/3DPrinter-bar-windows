@@ -20,12 +20,17 @@ public static class FilamentPage
 
     public static UIElement Build()
     {
+        var isMoonraker = Store.Config?.Protocol == PrinterProtocol.Moonraker;
         var rows = new List<UIElement?> { PageHeader("Filament", Subtitle()) };
         if (Store.Status is { } status && Store.IsOnline)
         {
             var printing = status.State.IsActive();
             if (status.Ams.Count == 0 && status.ExternalSpool is null)
-                rows.Add(Empty(Icon.Spool, "No AMS connected", "Spools loaded in an AMS or on the external holder appear here."));
+            {
+                rows.Add(isMoonraker
+                    ? Empty(Icon.Spool, "No filament loaded", "Spools loaded on your printer's toolheads appear here.")
+                    : Empty(Icon.Spool, "No AMS connected", "Spools loaded in an AMS or on the external holder appear here."));
+            }
             foreach (var unit in status.Ams)
             {
                 var grid = new AdaptiveGrid { MinColumnWidth = 150, Spacing = 12 };
@@ -50,7 +55,9 @@ public static class FilamentPage
 
     private static string Subtitle()
     {
-        if (Store.Status is not { } s) return "Spools in your AMS and on the external holder";
+        var isMoonraker = Store.Config?.Protocol == PrinterProtocol.Moonraker;
+        if (Store.Status is not { } s)
+            return isMoonraker ? "Spools loaded on your printer's toolheads" : "Spools in your AMS and on the external holder";
         var loaded = s.AllSpools.Count(sp => sp.IsLoaded);
         var plural = loaded == 1 ? "" : "s";
         var grams = s.AllSpools.Select(sp => sp.GramsLeft).OfType<int>().ToList();
@@ -139,7 +146,7 @@ public static class FilamentPage
             string.Join(" · ", new[] { spool.ColorName, hex }.OfType<string>()),
         ];
         if (spool.NozzleRange is { } range) lines.Add($"Prints at {range.Low}–{range.High} °C");
-        if (spool.Remain is null)
+        if (spool.Remain is null && Store.Config?.Protocol != PrinterProtocol.Moonraker)
             lines.Add(spool.IsExternal ? "The external holder can’t weigh the spool." : "Only Bambu Lab spools with an RFID tag report what’s left.");
         return string.Join("\n", lines);
     }

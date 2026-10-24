@@ -1,4 +1,15 @@
+using System.Text.Json.Serialization;
+
 namespace BambuBar.Models;
+
+/// <summary>Which network protocol a printer uses.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<PrinterProtocol>))]
+public enum PrinterProtocol
+{
+    BambuLan,
+    /// <summary>Klipper / Moonraker / Fluidd / Mainsail (including Snapmaker U1 with paxx12 firmware).</summary>
+    Moonraker,
+}
 
 /// <summary>Where to find the printer. The access code lives in Windows Credential Manager, not here.</summary>
 public sealed record PrinterConfig
@@ -6,21 +17,36 @@ public sealed record PrinterConfig
     public string Host { get; set; } = "";
     public string Serial { get; set; } = "";
     public string Name { get; set; } = "";
-    /// <summary>SSDP model code ("N7" for the P2S).</summary>
+    /// <summary>SSDP model code ("N7" for the P2S, "SM-U1" for Snapmaker U1).</summary>
     public string ModelCode { get; set; } = "";
+    public PrinterProtocol Protocol { get; set; } = PrinterProtocol.BambuLan;
 
-    public string ModelName => PrinterModel.NameFor(ModelCode, Serial);
-    public PrinterModel? Model => PrinterModel.Find(ModelCode, Serial);
+    public string ModelName => Protocol == PrinterProtocol.Moonraker && string.IsNullOrEmpty(ModelCode)
+        ? "Snapmaker U1"
+        : PrinterModel.NameFor(ModelCode, Serial);
 
-    /// <summary>Printers listen on 8883; <c>host:port</c> reaches a mock printer (scripts/fleet).</summary>
+    public string FullModelName => Protocol == PrinterProtocol.Moonraker && string.IsNullOrEmpty(ModelCode)
+        ? "Snapmaker U1"
+        : PrinterModel.FullNameFor(ModelCode, Serial);
+
+    public PrinterModel? Model => Protocol == PrinterProtocol.Moonraker && string.IsNullOrEmpty(ModelCode)
+        ? PrinterModel.Find("SM-U1")
+        : PrinterModel.Find(ModelCode, Serial);
+
+    /// <summary>Bambu printers listen on 8883; Moonraker/Fluidd defaults to 80 (or 7125); <c>host:port</c> overrides.</summary>
     public (string Host, int Port) Endpoint
     {
         get
         {
-            var parts = Host.Split(':');
+            var clean = Host.Trim();
+            if (clean.StartsWith("http://", StringComparison.OrdinalIgnoreCase)) clean = clean[7..];
+            else if (clean.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) clean = clean[8..];
+            clean = clean.TrimEnd('/');
+            var parts = clean.Split(':');
+            var defaultPort = Protocol == PrinterProtocol.Moonraker ? 80 : 8883;
             return parts.Length == 2 && int.TryParse(parts[1], out var port) && port is > 0 and < 65536
                 ? (parts[0], port)
-                : (Host, 8883);
+                : (clean, defaultPort);
         }
     }
 }

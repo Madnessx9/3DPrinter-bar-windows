@@ -95,4 +95,95 @@ public class StoreTests
             Assert.Equal("Workshop: Print failed", Assert.Single(notifier.Posted).Title);
         });
     }
+
+    [Fact]
+    public void MoonrakerStatusParsingAndSnapmakerU1Model()
+    {
+        var config = new PrinterConfig
+        {
+            Host = "192.168.1.60",
+            Serial = "SMU-192-168-1-60",
+            Name = "Snapmaker U1",
+            ModelCode = "SM-U1",
+            Protocol = PrinterProtocol.Moonraker,
+        };
+        Assert.Equal("Snapmaker U1", config.FullModelName);
+        Assert.Equal(80, config.Endpoint.Port);
+
+        var objects = System.Text.Json.Nodes.JsonNode.Parse("""
+        {
+            "print_stats": {
+                "state": "printing",
+                "filename": "Voron_Cube_v4.gcode",
+                "print_duration": 1800,
+                "info": { "current_layer": 45, "total_layer": 90 }
+            },
+            "virtual_sdcard": { "progress": 0.50 },
+            "extruder": { "temperature": 215.4, "target": 215.0, "state": "PARKED" },
+            "extruder1": { "temperature": 210.1, "target": 210.0, "state": "ACTIVATE" },
+            "extruder2": { "temperature": 25.0, "target": 0.0, "state": "PARKED" },
+            "extruder3": { "temperature": 25.0, "target": 0.0, "state": "PARKED" },
+            "print_task_config": {
+                "filament_vendor": ["Generic", "Generic", "Generic", "SUNLU"],
+                "filament_type": ["PLA", "PLA", "PLA", "PLA"],
+                "filament_sub_type": ["", "", "", "NONE"],
+                "filament_color_rgba": ["000000FF", "E72F1DFF", "FFFFFFFF", "8B4513FF"],
+                "filament_exist": [true, true, true, true],
+                "filament_official": [false, false, false, true]
+            },
+            "heater_bed": { "temperature": 60.0, "target": 60.0 },
+            "temperature_sensor cavity": { "temperature": 37.2 },
+            "fan": { "speed": 0.8 },
+            "gcode_move": { "speed_factor": 1.0 }
+        }
+        """)!.AsObject();
+
+        var meta = System.Text.Json.Nodes.JsonNode.Parse("""
+        {
+            "estimated_time": 3600,
+            "layer_count": 90
+        }
+        """)!.AsObject();
+
+        var parsed = BambuBar.Protocol.MoonrakerConnection.ParseMoonrakerStatus(objects, meta, "v0.12.0-paxx12", null, config);
+        Assert.Equal(JobState.Printing, parsed.State);
+        Assert.Equal("Voron_Cube_v4", parsed.JobName);
+        Assert.Equal(50, parsed.Progress);
+        Assert.Equal(30, parsed.RemainingMinutes);
+        Assert.Equal(45, parsed.Layer);
+        Assert.Equal(90, parsed.TotalLayers);
+        Assert.Equal(210.1, parsed.Nozzle.Current);
+        Assert.NotNull(parsed.SecondNozzle);
+        Assert.Equal(215.4, parsed.SecondNozzle!.Current);
+        Assert.Equal(60.0, parsed.Bed.Current);
+        Assert.Equal(37.2, parsed.Chamber);
+        Assert.Equal(80, parsed.PartFan);
+        Assert.Equal("Toolheads", parsed.Ams[0].Title);
+        Assert.Equal(4, parsed.Ams[0].Spools.Count);
+        Assert.Equal(1, parsed.ActiveSpoolId);
+        Assert.Equal(["T1", "T2", "T3", "T4"], parsed.Ams[0].Spools.Select(s => s.Label));
+        Assert.Equal(["000000FF", "E72F1DFF", "FFFFFFFF", "8B4513FF"], parsed.Ams[0].Spools.Select(s => s.Color));
+        Assert.Equal(["Black", "Red", "White", "Brown"], parsed.Ams[0].Spools.Select(s => s.ColorName));
+        Assert.Equal("SUNLU", parsed.Ams[0].Spools[3].Brand);
+    }
+
+    [Fact]
+    public void ActiveSessionsFilterOnlyReturnsActiveOrAttentionPrinters()
+    {
+        Main.Run(() =>
+        {
+            var (store, session1, _) = MakeStore();
+            var session2 = store.Add(new PrinterConfig { Host = "192.168.1.60", Serial = "SMU-1", Name = "Snapmaker U1", ModelCode = "SM-U1", Protocol = PrinterProtocol.Moonraker });
+            session1.ShowDemoStatus(Status(JobState.Idle, 0, ""));
+            session2.ShowDemoStatus(Status(JobState.Printing, 42, "MultiColorDragon"));
+
+            Assert.Equal(2, store.FleetSessions.Count);
+            Assert.Single(store.ActiveSessions);
+            Assert.Equal("Snapmaker U1", store.ActiveSessions[0].Config.Name);
+
+            store.FleetActiveOnly = true;
+            Assert.Single(store.DisplayedFleetSessions);
+            Assert.Equal("Snapmaker U1", store.DisplayedFleetSessions[0].Config.Name);
+        });
+    }
 }

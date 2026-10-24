@@ -40,13 +40,12 @@ public sealed class WidgetsPage : ContentControl
             var chosen = size;
             buttons.Add(ControlButton($"Add {size.Title()}", Icon.Add, () => Shell.AddWidget(chosen), Palette.AccentDeep, prominent: size == WidgetSize.Small).Sized(width: 130));
         }
+        buttons.Add(ControlButton("Add Active Printers", Icon.Printer, () => DesktopWidgets.Shared.Add(WidgetSize.Medium, WidgetWindow.ActivePrintersSerial), Palette.AccentDeep, prominent: true).Sized(width: 170));
         var count = DesktopWidgets.Shared.Placements.Count;
         var steps = Column(12,
-            Step(1, Icon.Add, "Click a size below. The widget appears at the top right of your main screen."),
+            Step(1, Icon.Add, "Click a size below (or **Add Active Printers** to list all active printers in one widget). The widget appears at the top right of your main screen."),
             Step(2, Icon.Hand, "Drag it where you want it. It stays under your other windows, like a desktop widget, and comes back there next time."),
-            Step(3, Icon.Printer, Store.HasMultiplePrinters
-                ? "**Right-click** a widget to choose its printer, size, or to keep it above other windows. Add one widget per printer to watch them side by side; a widget left on **Follow the tray icon** shows the tray's printer."
-                : "**Right-click** a widget to change its size or keep it above other windows. Add more printers later and each widget can show a different one."),
+            Step(3, Icon.Printer, "**Right-click** a widget to choose **All Active Printers**, **All Printers**, a specific printer, size, or to keep it above other windows."),
             Row(10, [.. buttons]).Aligned(HorizontalAlignment.Left).WithMargin(34, 4, 0, 0),
             count > 0 ? Text(count == 1 ? "One widget is on your desktop." : $"{count} widgets are on your desktop.", 11.5, color: Theme.Secondary).WithMargin(34, 0, 0, 0) : null);
         return Column(10, SectionLabel("Add a widget"), Panel(steps, 16, 16));
