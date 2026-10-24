@@ -361,6 +361,7 @@ public sealed class MoonrakerConnection : IDisposable
                 if (name is "extruder1" or "extruder2" or "extruder3"
                     or "print_task_config" or "filament_detect" or "filament_parameters"
                     || name.StartsWith("filament_feed ", StringComparison.Ordinal)
+                    || name.StartsWith("tmc", StringComparison.Ordinal)
                     || name.StartsWith("temperature_sensor ", StringComparison.Ordinal)
                     || name.StartsWith("temperature_fan ", StringComparison.Ordinal)
                     || name.StartsWith("heater_generic ", StringComparison.Ordinal)
@@ -627,7 +628,16 @@ public sealed class MoonrakerConnection : IDisposable
             }
         }
 
-        // Second nozzle (for multi-toolhead printers like Snapmaker U1)
+        // All toolhead temperatures (T1..T4) and secondary nozzle fallback
+        var toolheadTemps = new List<Temperature>();
+        foreach (var ext in extruders)
+        {
+            if (ext is null) continue;
+            toolheadTemps.Add(new Temperature(
+                Math.Round(J.Double(ext["temperature"]) ?? 0, 1),
+                Math.Round(J.Double(ext["target"]) ?? 0, 1)));
+        }
+
         Temperature? secondNozzle = null;
         JsonObject? secondaryExtruder = null;
         for (var i = 0; i < extruders.Length; i++)
@@ -643,19 +653,28 @@ public sealed class MoonrakerConnection : IDisposable
                 Math.Round(J.Double(secondaryExtruder["target"]) ?? 0, 1));
         }
 
-        // Chamber temperature sensor
+        // Chamber temperature sensor & X/Y stepper driver temperatures
         double? chamberTemp = null;
         double? chamberTarget = null;
+        double? driverXTemp = null;
+        double? driverYTemp = null;
         foreach (var (k, v) in objects)
         {
             if (v is not JsonObject sensorObj) continue;
             var lower = k.ToLowerInvariant();
-            if ((lower.StartsWith("temperature_sensor ") || lower.StartsWith("temperature_fan ") || lower.StartsWith("heater_generic "))
+            if ( chamberTemp is null
+                && (lower.StartsWith("temperature_sensor ") || lower.StartsWith("temperature_fan ") || lower.StartsWith("heater_generic "))
                 && (lower.Contains("chamber") || lower.Contains("enclosure") || lower.Contains("cavity")))
             {
                 chamberTemp = Math.Round(J.Double(sensorObj["temperature"]) ?? 0, 1);
                 if (J.Double(sensorObj["target"]) is double ct && ct > 0) chamberTarget = Math.Round(ct, 1);
-                break;
+            }
+            else if (lower.StartsWith("tmc") && J.Double(sensorObj["temperature"]) is double drvTemp)
+            {
+                if (lower.EndsWith("stepper_x") || lower.Contains("stepper_x "))
+                    driverXTemp = Math.Round(drvTemp, 1);
+                else if (lower.EndsWith("stepper_y") || lower.Contains("stepper_y "))
+                    driverYTemp = Math.Round(drvTemp, 1);
             }
         }
 
@@ -719,6 +738,9 @@ public sealed class MoonrakerConnection : IDisposable
             TotalLayers = totalLayers,
             Nozzle = new Temperature(Math.Round(nozzleTemp, 1), Math.Round(nozzleTarget, 1)),
             SecondNozzle = secondNozzle,
+            ToolheadTemps = toolheadTemps.Count > 1 ? toolheadTemps.ToValueList() : [],
+            DriverXTemp = driverXTemp,
+            DriverYTemp = driverYTemp,
             Bed = new Temperature(Math.Round(bedTemp, 1), Math.Round(bedTarget, 1)),
             Chamber = chamberTemp,
             ChamberTarget = chamberTarget,

@@ -61,7 +61,7 @@ public sealed class OverviewPage : ContentControl
     private static string Subtitle()
     {
         if (Store.Config is not { } config) return "";
-        List<string> parts = [$"Bambu Lab {config.ModelName}", config.Host];
+        List<string> parts = [config.FullModelName, config.Host];
         if (Store.Status?.Firmware is { } fw) parts.Add($"Firmware {fw}");
         return string.Join(" · ", parts);
     }
@@ -79,9 +79,7 @@ public sealed class OverviewPage : ContentControl
     private static FrameworkElement Metrics(PrinterStatus s)
     {
         var title = s.Chamber is null && Store.Config?.Model?.IsEnclosed == false ? "Temperatures & cooling" : "Temperatures & airflow";
-        var tiles = TemperatureTiles(s, Store.Config?.Model);
-        tiles.Add(FanTile(s));
-        return Section(title, Row(10, [.. tiles.Select(t => Grow(t))]));
+        return Section(title, TemperaturesLayout(s, Store.Config?.Model, includeFans: true, spacing: 10));
     }
 
     private static FrameworkElement Machine(PrinterStatus s)
@@ -91,6 +89,13 @@ public sealed class OverviewPage : ContentControl
             DetailRow("Speed", $"{Store.Speed.Title()} ({Store.Speed.Percent()}%)", Icon.Speed),
             DetailRow("Nozzle", NozzleText(s), Icon.Nozzle),
         };
+        if (s.DriverXTemp is not null || s.DriverYTemp is not null)
+        {
+            var drvParts = new List<string>();
+            if (s.DriverXTemp is double dx) drvParts.Add($"X: {Format.Temperature(dx)}");
+            if (s.DriverYTemp is double dy) drvParts.Add($"Y: {Format.Temperature(dy)}");
+            left.Add(DetailRow("Stepper drivers", string.Join(" · ", drvParts), Icon.Chip));
+        }
         if (Store.Config?.Model?.IsEnclosed ?? true)
             left.Add(DetailRow("Door", s.DoorOpen is bool open ? open ? "Open" : "Closed" : "—", Icon.Door));
         if (s.ChamberLightOn is not null) left.Add(DetailRow("Light", Store.ChamberLightOn ? "On" : "Off", Icon.Lightbulb));
@@ -121,14 +126,23 @@ public sealed class OverviewPage : ContentControl
         List<string> fans = ["Part cooling"];
         if (model.HasAuxFan) fans.Add("aux");
         if (model.HasChamberFan) fans.Add("chamber");
+        var nozzlesText = model.NozzleCount switch
+        {
+            >= 4 => $"Four toolheads (T1–T4), up to {model.NozzleMax} °C",
+            2 => $"Two, up to {model.NozzleMax} °C",
+            _ => $"One, up to {model.NozzleMax} °C",
+        };
+        var filamentText = model.NozzleCount >= 4
+            ? "4-channel toolchanger (T1–T4)"
+            : model.UsesAmsLite ? "AMS Lite" : "AMS, AMS 2 Pro, AMS HT";
         var left = Column(9,
             DetailRow("Build volume", model.BuildVolumeText, Icon.Cube),
             DetailRow("Chamber", model.ChamberText, Icon.Layers),
-            DetailRow("Nozzles", model.NozzleCount == 2 ? $"Two, up to {model.NozzleMax} °C" : $"One, up to {model.NozzleMax} °C", Icon.Flame));
+            DetailRow("Nozzles", nozzlesText, Icon.Flame));
         var right = Column(9,
             DetailRow("Bed", $"Up to {model.BedMax} °C", Icon.Heat),
             DetailRow("Fans", string.Join(", ", fans), Icon.Fan),
-            DetailRow("Filament", model.UsesAmsLite ? "AMS Lite" : "AMS, AMS 2 Pro, AMS HT", Icon.Spool));
+            DetailRow("Filament", filamentText, Icon.Spool));
         var a = Panel(left, 16, 13);
         var b = Panel(right, 16, 13);
         a.VerticalAlignment = b.VerticalAlignment = VerticalAlignment.Top;

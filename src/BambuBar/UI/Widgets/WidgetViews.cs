@@ -353,13 +353,14 @@ public static class WidgetViews
         FrameworkElement? footer = null;
         if (w.Status is { } s)
         {
+            var nozzleTitle = s.ToolheadTemps.Count > 1 && s.ActiveSpoolId is int activeIdx ? $"T{activeIdx + 1}" : "Nozzle";
             var tiles = new List<UIElement?>
             {
-                TempTile("Nozzle", Icon.Flame, s.Nozzle.Current, s.Nozzle.Target, Palette.Nozzle),
+                TempTile(nozzleTitle, Icon.Flame, s.Nozzle.Current, s.Nozzle.Target, Palette.Nozzle),
                 TempTile("Bed", Icon.Heat, s.Bed.Current, s.Bed.Target, Palette.Bed),
             };
             if (s.Chamber is double chamber) tiles.Add(TempTile("Chamber", Icon.Thermometer, chamber, s.ChamberTarget, Palette.Chamber));
-            else if (s.SecondNozzle is { } left) tiles.Add(TempTile("Left", Icon.Flame, left.Current, left.Target, Palette.Nozzle));
+            else if (s.SecondNozzle is { } left) tiles.Add(TempTile(s.ToolheadTemps.Count > 1 ? "Parked" : "Left", Icon.Flame, left.Current, left.Target, Palette.Nozzle));
             else if (s.PartFan is int fan) tiles.Add(StatTile("Part fan", Icon.Fan, $"{fan}%", s.Speed.Title() + " speed", Palette.Chamber, fan > 0));
             rows.Add(Row(8, [.. tiles.Select(t => t is null ? null : Grow(t))]).WithMargin(0, 14, 0, 0));
             if (s.Ams.FirstOrDefault() is { } unit)

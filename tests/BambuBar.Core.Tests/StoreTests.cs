@@ -133,6 +133,8 @@ public class StoreTests
             },
             "heater_bed": { "temperature": 60.0, "target": 60.0 },
             "temperature_sensor cavity": { "temperature": 37.2 },
+            "tmc2240 stepper_x": { "temperature": 74.0 },
+            "tmc2240 stepper_y": { "temperature": 77.0 },
             "fan": { "speed": 0.8 },
             "gcode_move": { "speed_factor": 1.0 }
         }
@@ -155,6 +157,9 @@ public class StoreTests
         Assert.Equal(210.1, parsed.Nozzle.Current);
         Assert.NotNull(parsed.SecondNozzle);
         Assert.Equal(215.4, parsed.SecondNozzle!.Current);
+        Assert.Equal([215.4, 210.1, 25.0, 25.0], parsed.ToolheadTemps.Select(t => t.Current));
+        Assert.Equal(74.0, parsed.DriverXTemp);
+        Assert.Equal(77.0, parsed.DriverYTemp);
         Assert.Equal(60.0, parsed.Bed.Current);
         Assert.Equal(37.2, parsed.Chamber);
         Assert.Equal(80, parsed.PartFan);

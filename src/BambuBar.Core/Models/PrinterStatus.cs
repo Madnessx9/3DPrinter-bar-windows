@@ -210,6 +210,11 @@ public sealed record PrinterStatus
     public double? ChamberTarget { get; set; }
     /// <summary>The left nozzle on two-nozzle models (<see cref="Nozzle"/> is the right one, as Bambu Studio numbers them).</summary>
     public Temperature? SecondNozzle { get; set; }
+    /// <summary>All toolhead temperatures (T1..T4) on multi-toolhead printers such as the Snapmaker U1.</summary>
+    public ValueList<Temperature> ToolheadTemps { get; set; } = [];
+    /// <summary>X and Y stepper driver temperatures (°C) when reported by TMC drivers (e.g. tmc2240 on Snapmaker U1).</summary>
+    public double? DriverXTemp { get; set; }
+    public double? DriverYTemp { get; set; }
     /// <summary>Fan speeds in percent.</summary>
     public int? PartFan { get; set; }
     public int? AuxFan { get; set; }

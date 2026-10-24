@@ -123,7 +123,7 @@ public sealed class PrinterModel
         M("O1E", "H2D Pro", PrinterShape.Wide, "239", true, true, 65, true, true, true, false, 2, 350, 120, (350, 320, 325), false, true),
         M("O1C", "H2C", PrinterShape.Wide, "31B", true, true, 65, true, true, true, false, 2, 350, 120, (330, 320, 325), false, true),
         M("O1S", "H2S", PrinterShape.Wide, "093", true, true, 65, true, true, true, false, 1, 350, 120, (340, 320, 340), false, true),
-        M("SM-U1", "U1", PrinterShape.Wide, "SMU", true, true, null, true, true, false, false, 2, 300, 100, (270, 270, 270), false, false, "Snapmaker"),
+        M("SM-U1", "U1", PrinterShape.Wide, "SMU", true, true, null, true, true, false, false, 4, 300, 100, (270, 270, 270), false, false, "Snapmaker"),
         M("KLIPPER", "Klipper", PrinterShape.Enclosed, "KLP", true, true, null, true, true, false, false, 1, 300, 120, (250, 250, 250), false, false, "Fluidd"),
     ];
 

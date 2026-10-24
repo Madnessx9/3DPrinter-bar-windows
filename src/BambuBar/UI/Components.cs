@@ -216,20 +216,31 @@ public static class Components
             Grow(valueText));
     }
 
-    /// <summary>Nozzle (two on dual-nozzle models), bed, and the chamber where the model has a sensor; scaled to the
-    /// model's maximum temperatures.</summary>
-    public static List<FrameworkElement> TemperatureTiles(PrinterStatus status, PrinterModel? model)
+    /// <summary>Nozzle (two on dual-nozzle models, or T1–T4 on multi-toolhead models), bed, chamber, and X/Y stepper drivers.</summary>
+    public static List<FrameworkElement> TemperatureTiles(PrinterStatus status, PrinterModel? model, bool includeToolheads = true)
     {
         var tiles = new List<FrameworkElement>();
         var nozzleMax = (double)(model?.NozzleMax ?? 300);
-        if (status.SecondNozzle is { } left)
+        if (includeToolheads)
         {
-            tiles.Add(TemperatureTile("Left", Icon.Flame, left, null, Palette.Nozzle, nozzleMax));
-            tiles.Add(TemperatureTile("Right", Icon.Flame, status.Nozzle, null, Palette.Nozzle, nozzleMax));
-        }
-        else
-        {
-            tiles.Add(TemperatureTile("Nozzle", Icon.Flame, status.Nozzle, null, Palette.Nozzle, nozzleMax));
+            if (status.ToolheadTemps.Count > 1)
+            {
+                for (var i = 0; i < status.ToolheadTemps.Count; i++)
+                {
+                    var isActive = status.ActiveSpoolId == i;
+                    var label = isActive ? $"T{i + 1} · Active" : $"T{i + 1}";
+                    tiles.Add(TemperatureTile(label, Icon.Flame, status.ToolheadTemps[i], null, Palette.Nozzle, nozzleMax));
+                }
+            }
+            else if (status.SecondNozzle is { } left)
+            {
+                tiles.Add(TemperatureTile("Left", Icon.Flame, left, null, Palette.Nozzle, nozzleMax));
+                tiles.Add(TemperatureTile("Right", Icon.Flame, status.Nozzle, null, Palette.Nozzle, nozzleMax));
+            }
+            else
+            {
+                tiles.Add(TemperatureTile("Nozzle", Icon.Flame, status.Nozzle, null, Palette.Nozzle, nozzleMax));
+            }
         }
         tiles.Add(TemperatureTile("Bed", Icon.Heat, status.Bed, null, Palette.Bed, model?.BedMax ?? 110));
         if (status.Chamber is double chamber)
@@ -244,17 +255,47 @@ public static class Components
             // A model with a sensor that hasn't reported yet.
             tiles.Add(TemperatureTile("Chamber", Icon.Thermometer, null, null, Palette.Chamber, 65));
         }
+        if (status.DriverXTemp is double dx)
+            tiles.Add(TemperatureTile("X Driver", Icon.Chip, null, dx, Palette.Chamber, 120, "Stepper TMC"));
+        if (status.DriverYTemp is double dy)
+            tiles.Add(TemperatureTile("Y Driver", Icon.Chip, null, dy, Palette.Chamber, 120, "Stepper TMC"));
         return tiles;
     }
 
+    /// <summary>Arranges temperature tiles cleanly in one row for 1–2 nozzle printers, or two rows (Toolheads T1–T4 on top,
+    /// Bed/Chamber/Drivers/Fans below) for multi-toolhead printers like the Snapmaker U1.</summary>
+    public static FrameworkElement TemperaturesLayout(PrinterStatus status, PrinterModel? model, bool includeFans, double spacing = 10)
+    {
+        if (status.ToolheadTemps.Count > 1)
+        {
+            var nozzleMax = (double)(model?.NozzleMax ?? 300);
+            var toolheadRow = new List<FrameworkElement>();
+            for (var i = 0; i < status.ToolheadTemps.Count; i++)
+            {
+                var isActive = status.ActiveSpoolId == i;
+                var label = isActive ? $"T{i + 1} · Active" : $"T{i + 1}";
+                toolheadRow.Add(TemperatureTile(label, Icon.Flame, status.ToolheadTemps[i], null, Palette.Nozzle, nozzleMax));
+            }
+            var secondRow = TemperatureTiles(status, model, includeToolheads: false);
+            if (includeFans) secondRow.Add(FanTile(status));
+            return Column(spacing,
+                Row(spacing, [.. toolheadRow.Select(t => Grow(t))]),
+                Row(spacing, [.. secondRow.Select(t => Grow(t))]));
+        }
+
+        var tiles = TemperatureTiles(status, model, includeToolheads: true);
+        if (includeFans) tiles.Add(FanTile(status));
+        return Row(spacing, [.. tiles.Select(t => Grow(t))]);
+    }
+
     /// <summary>A temperature readout: value large, target small, a hairline gauge underneath.</summary>
-    public static FrameworkElement TemperatureTile(string title, Icon icon, Temperature? temperature, double? plain, Color tint, double maxValue)
+    public static FrameworkElement TemperatureTile(string title, Icon icon, Temperature? temperature, double? plain, Color tint, double maxValue, string? plainLabel = null)
     {
         var current = temperature?.Current ?? plain;
         var heating = (temperature?.Target ?? 0) > 0;
         var rising = temperature is { Target: > 0 } t && t.Current < t.Target - 3;
         string targetText;
-        if (temperature is not { } temp) targetText = plain is null ? "No sensor" : "Read only";
+        if (temperature is not { } temp) targetText = plain is null ? "No sensor" : (plainLabel ?? "Read only");
         else if (temp.Target <= 0) targetText = "Off";
         else if (temp.IsAtTarget) targetText = $"At {(int)temp.Target}°";
         else targetText = temp.Current < temp.Target ? $"Heating to {(int)temp.Target}°" : $"Cooling to {(int)temp.Target}°";

@@ -61,7 +61,7 @@ public sealed class MenuPanel : ContentControl
         {
             rows.Add(JobHero(status, compact: true, _model));
             if (status.MostSevereIssue is { } issue && issue.Severity <= IssueSeverity.Common) rows.Add(IssueBanner(issue));
-            rows.Add(Row(8, [.. Components.TemperatureTiles(status, Store.Config?.Model).Select(t => Grow(t))]));
+            rows.Add(Components.TemperaturesLayout(status, Store.Config?.Model, includeFans: false, spacing: 8));
             if (status.Ams.Count > 0 || status.ExternalSpool?.IsLoaded == true) rows.Add(FilamentStrip(status));
             if (status.State.IsActive()) rows.Add(PrintControls(status));
         }
