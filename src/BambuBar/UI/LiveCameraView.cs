@@ -90,11 +90,19 @@ public sealed class LiveCameraView : Border
         MouseEnter += (_, _) => UpdateLiveControlsVisibility(true);
         MouseLeave += (_, _) => UpdateLiveControlsVisibility(false);
 
+        // Note: Reuse.Detach() briefly detaches this control from the visual tree on every status tick.
+        // Defer visibility check until after layout/reparenting settles so status updates don't stop the stream.
         IsVisibleChanged += (_, _) =>
         {
-            if (!IsVisible && _isPlaying) StopStream();
+            if (!IsVisible && _isPlaying)
+            {
+                Dispatcher.BeginInvoke(async () =>
+                {
+                    await Task.Delay(400);
+                    if (!IsVisible && _isPlaying) StopStream();
+                }, System.Windows.Threading.DispatcherPriority.Background);
+            }
         };
-        Unloaded += (_, _) => StopStream();
 
         RebuildOverlays();
         ShowIdleState();
@@ -106,7 +114,7 @@ public sealed class LiveCameraView : Border
         if (_boundSerial != currentSerial)
         {
             _boundSerial = currentSerial;
-            StopStream();
+            if (_isPlaying) StopStream();
         }
 
         if (_compact != compact)
@@ -284,7 +292,7 @@ public sealed class LiveCameraView : Border
             }
             catch (Exception ex)
             {
-                Dispatcher.BeginInvoke(() =>
+                _ = Dispatcher.BeginInvoke(() =>
                 {
                     if (!cts.Token.IsCancellationRequested)
                         ShowErrorState($"Live View unavailable ({ex.Message})");
@@ -318,7 +326,7 @@ public sealed class LiveCameraView : Border
             bmp.EndInit();
             bmp.Freeze();
 
-            Dispatcher.BeginInvoke(() =>
+            _ = Dispatcher.BeginInvoke(() =>
             {
                 if (token.IsCancellationRequested || !_isPlaying) return;
                 _videoImage.Source = bmp;
@@ -358,12 +366,10 @@ public sealed class LiveCameraView : Border
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/server/webcams/list");
             if (apiKey.Length > 0) req.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
-            using var ctsTimeout = CancellationTokenSource.CreateLinkedTokenSource(token);
-            ctsTimeout.CancelAfter(TimeSpan.FromSeconds(4));
-            using var resp = await Http.SendAsync(req, ctsTimeout.Token).ConfigureAwait(false);
+            using var resp = await Http.SendAsync(req, token).WaitAsync(TimeSpan.FromSeconds(4), token).ConfigureAwait(false);
             if (resp.IsSuccessStatusCode)
             {
-                var body = await resp.Content.ReadAsStringAsync(ctsTimeout.Token).ConfigureAwait(false);
+                var body = await resp.Content.ReadAsStringAsync(token).ConfigureAwait(false);
                 if (JsonNode.Parse(body)?["result"]?["webcams"] is JsonArray { Count: > 0 } webcams
                     && webcams[0] is JsonObject cam)
                 {
@@ -388,21 +394,45 @@ public sealed class LiveCameraView : Border
         candidateSnapshots.Add($"{baseUrl}/webcam/snapshot.jpg");
         candidateSnapshots.Add($"{baseUrl}/webcam/?action=snapshot");
 
-        // 2. Try MJPEG continuous stream first (lowest latency, 15fps on Snapmaker U1)
-        foreach (var streamUrl in candidateStreams.Distinct())
-        {
-            if (await TryMjpegStreamAsync(streamUrl, apiKey, flipH, flipV, rotation, token).ConfigureAwait(false))
-                return;
-        }
+        var streams = candidateStreams.Distinct().ToList();
+        var snapshots = candidateSnapshots.Distinct().ToList();
 
-        // 3. Fallback: poll JPEG snapshot endpoint at ~5 fps
-        foreach (var snapUrl in candidateSnapshots.Distinct())
+        while (!token.IsCancellationRequested)
         {
-            if (await TrySnapshotLoopAsync(snapUrl, apiKey, flipH, flipV, rotation, token).ConfigureAwait(false))
-                return;
-        }
+            var streamedAny = false;
 
-        Dispatcher.BeginInvoke(() => ShowErrorState("Could not reach webcam stream"));
+            // 2. Try MJPEG continuous stream first (lowest latency, 15fps on Snapmaker U1)
+            foreach (var streamUrl in streams)
+            {
+                if (await TryMjpegStreamAsync(streamUrl, apiKey, flipH, flipV, rotation, token).ConfigureAwait(false))
+                {
+                    streamedAny = true;
+                    break;
+                }
+            }
+
+            // 3. Fallback: poll JPEG snapshot endpoint at ~5 fps
+            if (!streamedAny)
+            {
+                foreach (var snapUrl in snapshots)
+                {
+                    if (await TrySnapshotLoopAsync(snapUrl, apiKey, flipH, flipV, rotation, token).ConfigureAwait(false))
+                    {
+                        streamedAny = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!streamedAny)
+            {
+                _ = Dispatcher.BeginInvoke(() => ShowErrorState("Could not reach webcam stream"));
+                return;
+            }
+
+            // If an MJPEG stream ended cleanly after delivering frames, reconnect after a brief pause while still playing
+            await Task.Delay(250, token).ConfigureAwait(false);
+        }
     }
 
     private static string ResolveCamUrl(string baseUrl, string pathOrUrl)
@@ -415,14 +445,15 @@ public sealed class LiveCameraView : Border
 
     private async Task<bool> TryMjpegStreamAsync(string url, string apiKey, bool flipH, bool flipV, int rotation, CancellationToken token)
     {
+        var gotFrame = false;
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, url);
             if (apiKey.Length > 0) req.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
 
-            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-            connectCts.CancelAfter(TimeSpan.FromSeconds(4));
-            using var resp = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, connectCts.Token).ConfigureAwait(false);
+            // Important: pass `token` (not a short-lived CTS) to SendAsync so SocketsHttpHandler does not abort the body stream after 4s!
+            using var resp = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, token)
+                .WaitAsync(TimeSpan.FromSeconds(5), token).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode) return false;
 
             var mediaType = resp.Content.Headers.ContentType?.MediaType ?? "";
@@ -437,17 +468,18 @@ public sealed class LiveCameraView : Border
 
             while (!token.IsCancellationRequested)
             {
-                var n = await stream.ReadAsync(readBuf, token).ConfigureAwait(false);
+                var n = await stream.ReadAsync(readBuf, token).WaitAsync(TimeSpan.FromSeconds(10), token).ConfigureAwait(false);
                 if (n <= 0) break;
                 acc.Write(readBuf, 0, n);
 
                 // Extract complete JPEG frames (SOI = FF D8, EOI = FF D9)
                 while (TryExtractJpeg(acc, out var frame))
                 {
+                    gotFrame = true;
                     OnFrameReceived(frame, flipH, flipV, rotation, token);
                 }
             }
-            return true;
+            return gotFrame;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
@@ -455,7 +487,7 @@ public sealed class LiveCameraView : Border
         }
         catch
         {
-            return false;
+            return gotFrame;
         }
     }
 
@@ -531,62 +563,78 @@ public sealed class LiveCameraView : Border
     {
         if (string.IsNullOrEmpty(accessCode))
         {
-            Dispatcher.BeginInvoke(() => ShowErrorState("Access code required for Live View"));
+            _ = Dispatcher.BeginInvoke(() => ShowErrorState("Access code required for Live View"));
             return;
         }
 
         var (host, _) = config.Endpoint;
-        using var tcp = new TcpClient();
-        using (var connectCts = CancellationTokenSource.CreateLinkedTokenSource(token))
-        {
-            connectCts.CancelAfter(TimeSpan.FromSeconds(5));
-            try
-            {
-                await tcp.ConnectAsync(host, 6000, connectCts.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (!token.IsCancellationRequested)
-            {
-                Dispatcher.BeginInvoke(() => ShowErrorState("Camera stream not reachable on port 6000"));
-                return;
-            }
-        }
-
-        await using var ssl = new SslStream(tcp.GetStream(), false, (_, _, _, _) => true);
-        await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
-        {
-            TargetHost = host,
-        }, token).ConfigureAwait(false);
-
-        // Build 80-byte Bambu chamber camera auth packet:
-        // [0..3]: 0x40, 0x00, 0x00, 0x00
-        // [4..7]: 0x00, 0x30, 0x00, 0x00
-        // [8..15]: zeros
-        // [16..47]: "bblp" padded with zeros (32 bytes)
-        // [48..79]: accessCode padded with zeros (32 bytes)
-        var auth = new byte[80];
-        auth[0] = 0x40;
-        auth[4] = 0x00;
-        auth[5] = 0x30;
-        var userBytes = Encoding.ASCII.GetBytes("bblp");
-        Buffer.BlockCopy(userBytes, 0, auth, 16, Math.Min(userBytes.Length, 32));
-        var passBytes = Encoding.ASCII.GetBytes(accessCode.Trim());
-        Buffer.BlockCopy(passBytes, 0, auth, 48, Math.Min(passBytes.Length, 32));
-
-        await ssl.WriteAsync(auth, token).ConfigureAwait(false);
-        await ssl.FlushAsync(token).ConfigureAwait(false);
-
-        var readBuf = new byte[32768];
-        using var acc = new MemoryStream(262144);
         while (!token.IsCancellationRequested)
         {
-            var n = await ssl.ReadAsync(readBuf, token).ConfigureAwait(false);
-            if (n <= 0) break;
-            acc.Write(readBuf, 0, n);
-
-            while (TryExtractJpeg(acc, out var frame))
+            var gotFrame = false;
+            try
             {
-                OnFrameReceived(frame, false, false, 0, token);
+                using var tcp = new TcpClient();
+                await tcp.ConnectAsync(host, 6000, token).AsTask().WaitAsync(TimeSpan.FromSeconds(5), token).ConfigureAwait(false);
+
+                await using var ssl = new SslStream(tcp.GetStream(), false, (_, _, _, _) => true);
+                await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+                {
+                    TargetHost = host,
+                }, token).ConfigureAwait(false);
+
+                // Build 80-byte Bambu chamber camera auth packet:
+                // [0..3]: 0x40, 0x00, 0x00, 0x00
+                // [4..7]: 0x00, 0x30, 0x00, 0x00
+                // [8..15]: zeros
+                // [16..47]: "bblp" padded with zeros (32 bytes)
+                // [48..79]: accessCode padded with zeros (32 bytes)
+                var auth = new byte[80];
+                auth[0] = 0x40;
+                auth[4] = 0x00;
+                auth[5] = 0x30;
+                var userBytes = Encoding.ASCII.GetBytes("bblp");
+                Buffer.BlockCopy(userBytes, 0, auth, 16, Math.Min(userBytes.Length, 32));
+                var passBytes = Encoding.ASCII.GetBytes(accessCode.Trim());
+                Buffer.BlockCopy(passBytes, 0, auth, 48, Math.Min(passBytes.Length, 32));
+
+                await ssl.WriteAsync(auth, token).ConfigureAwait(false);
+                await ssl.FlushAsync(token).ConfigureAwait(false);
+
+                var readBuf = new byte[32768];
+                using var acc = new MemoryStream(262144);
+                while (!token.IsCancellationRequested)
+                {
+                    var n = await ssl.ReadAsync(readBuf, token).AsTask().WaitAsync(TimeSpan.FromSeconds(10), token).ConfigureAwait(false);
+                    if (n <= 0) break;
+                    acc.Write(readBuf, 0, n);
+
+                    while (TryExtractJpeg(acc, out var frame))
+                    {
+                        gotFrame = true;
+                        OnFrameReceived(frame, false, false, 0, token);
+                    }
+                }
             }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                if (!gotFrame)
+                {
+                    _ = Dispatcher.BeginInvoke(() => ShowErrorState("Camera stream not reachable on port 6000"));
+                    return;
+                }
+            }
+
+            if (!gotFrame)
+            {
+                _ = Dispatcher.BeginInvoke(() => ShowErrorState("Camera stream closed"));
+                return;
+            }
+
+            await Task.Delay(300, token).ConfigureAwait(false);
         }
     }
 }
