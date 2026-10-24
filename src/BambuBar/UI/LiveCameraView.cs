@@ -468,7 +468,7 @@ public sealed class LiveCameraView : Border
 
             while (!token.IsCancellationRequested)
             {
-                var n = await stream.ReadAsync(readBuf, token).WaitAsync(TimeSpan.FromSeconds(10), token).ConfigureAwait(false);
+                var n = await stream.ReadAsync(readBuf, token).AsTask().WaitAsync(TimeSpan.FromSeconds(10), token).ConfigureAwait(false);
                 if (n <= 0) break;
                 acc.Write(readBuf, 0, n);
 
